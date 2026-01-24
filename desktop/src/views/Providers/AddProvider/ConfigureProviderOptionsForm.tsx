@@ -518,7 +518,7 @@ function useOptions(
       }
       changedOptions.push(option)
     }
-    if (.length > 0) {
+    if (changedOptions.length > 0) {
       refreshSubOptionsMutation({
         options: changedOptions.reduce((acc, o) => {
           const option = { value: opts[o] } as unknown as TProviderOption
