@@ -96,6 +96,7 @@ jobs:
     name: Test ${{ matrix.label }} on ${{ matrix.runner }}
     needs: [can-read-secret, build-cli]
     strategy:
+      fail-fast: false
       matrix:
         include:
           - label: context
@@ -146,31 +147,27 @@ jobs:
             install-kind: true
             requires-secret: true
 
-          - label: up && workspace
+          - label: docker-install
+            runner: ubuntu-latest
+            free-disk-space: false
+            install-kind: false
+            requires-secret: false
+
+          # Up tests
+
+          - label: up-workspaces
             runner: ubuntu-latest
             free-disk-space: true
             install-kind: true
             requires-secret: false
 
-          - label: up && git
+          - label: up-git-repositories
             runner: ubuntu-latest
             free-disk-space: true
             install-kind: true
             requires-secret: false
 
-          - label: up && provider-kubernetes
-            runner: ubuntu-latest
-            free-disk-space: true
-            install-kind: true
-            requires-secret: false
-
-          - label: up && features
-            runner: ubuntu-latest
-            free-disk-space: true
-            install-kind: true
-            requires-secret: false
-
-          - label: up && error
+          - label: up-handle-errors
             runner: ubuntu-latest
             free-disk-space: true
             install-kind: true
@@ -182,41 +179,59 @@ jobs:
             install-kind: false
             requires-secret: true
 
-          - label: up-podman
+          - label: up-provider-kubernetes
             runner: ubuntu-latest
             free-disk-space: true
             install-kind: true
             requires-secret: false
 
-          - label: up-docker
+          - label: up-provider-podman
+            runner: ubuntu-latest
+            free-disk-space: true
+            install-kind: true
+            requires-secret: false
+
+          - label: up-provider-docker
             runner: ubuntu-latest
             free-disk-space: false
             install-kind: true
             requires-secret: false
 
-          - label: up-docker-wsl
+          - label: up-dockerfile-build
             runner: ubuntu-latest
             free-disk-space: false
             install-kind: true
             requires-secret: false
 
-          - label: up-docker-compose
+          #  Up Docker Compose tests
+
+          - label: up-docker-compose && build
             runner: ubuntu-latest
             free-disk-space: false
             install-kind: true
             requires-secret: false
 
-          - label: up-docker-compose-build
+          - label: up-docker-compose && config
             runner: ubuntu-latest
             free-disk-space: false
             install-kind: true
             requires-secret: false
 
-          - label: up-docker-build
+          - label: up-docker-compose && suite
             runner: ubuntu-latest
             free-disk-space: false
             install-kind: true
             requires-secret: false
+
+          # Up Docker Feature tests
+
+          - label: up-features && suite
+            runner: ubuntu-latest
+            free-disk-space: true
+            install-kind: true
+            requires-secret: false
+
+          # Windows tests
 
           - label: context
             runner: windows-latest
@@ -230,11 +245,12 @@ jobs:
             install-kind: true
             requires-secret: false
 
-          - label: docker-install
-            runner: ubuntu-latest
+          - label: up-docker-wsl
+            runner: windows-latest
             free-disk-space: false
-            install-kind: false
+            install-kind: true
             requires-secret: false
+
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: jlumbroso/free-disk-space@v1.3.1
@@ -265,6 +281,14 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: devpod-${{ steps.os.outputs.runner_os }}
+          path: ${{ runner.temp }}/devpod-bin/
+          merge-multiple: true
+
+      - name: download Linux CLI artifacts for Windows
+        if: runner.os == 'Windows' && (matrix.requires-secret == false || needs.can-read-secret.outputs.secret-set == 'true')
+        uses: actions/download-artifact@v7
+        with:
+          pattern: devpod-linux
           path: ${{ runner.temp }}/devpod-bin/
           merge-multiple: true
 
@@ -349,6 +373,7 @@ jobs:
               KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}" \
               PATH="${PATH}" \
               GOROOT="${GOROOT}" \
+              DOCKER_HOST="npipe:////./pipe/podman-machine-default" \
               go test -v -ginkgo.v -timeout 3600s --ginkgo.label-filter="${{ matrix.label }}"
           fi
 
