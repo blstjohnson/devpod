@@ -18,7 +18,7 @@ var _ = framework.DevPodDescribe("devpod provider rename", func() {
 
 		// RENAME-1
 		ginkgo.It("should rename a provider to a new, valid name", func() {
-			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
@@ -55,7 +55,7 @@ var _ = framework.DevPodDescribe("devpod provider rename", func() {
 
 		// RENAME-2
 		ginkgo.It("should fail to rename a provider to a name that already exists", func() {
-			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
@@ -105,7 +105,7 @@ var _ = framework.DevPodDescribe("devpod provider rename", func() {
 
 		// RENAME-4
 		ginkgo.It("should rename a provider with an associated workspace", func() {
-			tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
+			tempDir, err := framework.CopyToTempDir("../up/testdata/no-devcontainer")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
@@ -153,7 +153,7 @@ var _ = framework.DevPodDescribe("devpod provider rename", func() {
 
 		// RENAME-5
 		ginkgo.It("should fail to rename a provider to an invalid name", func() {
-			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 

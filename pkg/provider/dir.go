@@ -422,6 +422,16 @@ func LoadWorkspaceResult(context, workspaceID string) (*config2.Result, error) {
 }
 
 func RenameProvider(context, oldName, newName string) error {
+	// Validate the new name
+	if newName == "" {
+		return fmt.Errorf("name is missing in provider.yaml")
+	}
+	if ProviderNameRegEx.MatchString(newName) {
+		return fmt.Errorf("provider name can only include lowercase letters, numbers or dashes")
+	} else if len(newName) > 32 {
+		return fmt.Errorf("provider name cannot be longer than 32 characters")
+	}
+
 	// Check if a provider with the new name already exists
 	newProviderDir, err := GetProviderDir(context, newName)
 	if err != nil {

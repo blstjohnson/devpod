@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"os"
+	"path/filepath"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/skevetter/devpod/e2e/framework"
@@ -17,7 +18,7 @@ var _ = framework.DevPodDescribe("devpod workspace rebind", func() {
 		}
 
 		ginkgo.It("should rebind a workspace to a new provider", func() {
-			tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
+			tempDir, err := framework.CopyToTempDir("../up/testdata/no-devcontainer")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
@@ -46,8 +47,15 @@ var _ = framework.DevPodDescribe("devpod workspace rebind", func() {
 			err = f.DevPodUp(ctx, tempDir)
 			framework.ExpectNoError(err)
 
+			// Stop the workspace before rebinding (get workspace ID from directory name)
+			workspaceID := filepath.Base(tempDir)
+
+			// Stop the workspace first to ensure it's not running during rebind
+			err = f.DevPodStop(ctx, workspaceID)
+			framework.ExpectNoError(err)
+
 			// Rebind workspace to second provider
-			err = f.DevPodWorkspaceRebind(ctx, tempDir, provider2Name)
+			err = f.DevPodWorkspaceRebind(ctx, workspaceID, provider2Name)
 			framework.ExpectNoError(err)
 
 			// Verify that the workspace is now associated with the second provider
@@ -55,7 +63,11 @@ var _ = framework.DevPodDescribe("devpod workspace rebind", func() {
 			err = f.DevPodProviderUse(ctx, provider2Name)
 			framework.ExpectNoError(err)
 
-			_, err = f.DevPodSSH(ctx, tempDir, "echo 'hello'")
+			// Start the workspace with the new provider and test it
+			err = f.DevPodUp(ctx, tempDir)
+			framework.ExpectNoError(err)
+
+			_, err = f.DevPodSSH(ctx, workspaceID, "echo 'hello'")
 			framework.ExpectNoError(err)
 
 			// Cleanup
