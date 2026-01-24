@@ -243,4 +243,23 @@ export class ProviderCommands {
 
     return Return.Ok()
   }
+
+  static async RenameProvider(oldName: TProviderID, newName: string) {
+    const result = await ProviderCommands.newCommand([
+      DEVPOD_COMMAND_PROVIDER,
+      DEVPOD_COMMAND_RENAME,
+      oldName,
+      newName,
+      DEVPOD_FLAG_JSON_LOG_OUTPUT,
+    ]).run()
+    if (result.err) {
+      return result
+    }
+
+    if (!isOk(result.val)) {
+      return getErrorFromChildProcess(result.val)
+    }
+
+    return Return.Ok()
+  }
 }

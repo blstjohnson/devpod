@@ -10,11 +10,13 @@ import {
   FormErrorMessage,
   FormHelperText,
   HStack,
+  Input,
   SimpleGrid,
   Spinner,
   Tooltip,
   VStack,
   useColorModeValue,
+  FormLabel,
 } from "@chakra-ui/react"
 import styled from "@emotion/styled"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -28,11 +30,13 @@ import {
   useState,
 } from "react"
 import { DefaultValues, FormProvider, UseFormReturn, useForm } from "react-hook-form"
+import { useNavigate } from "react-router"
 import { useBorderColor } from "../../../Theme"
 import { client } from "../../../client"
 import { useProvider } from "../../../contexts"
 import { exists, useFormErrors } from "../../../lib"
 import { QueryKeys } from "../../../queryKeys"
+import { Routes } from "../../../routes.constants"
 import {
   TConfigureProviderConfig,
   TProvider,
@@ -53,6 +57,7 @@ const Form = styled.form`
 const FieldName = {
   REUSE_MACHINE: "reuseMachine",
   USE_AS_DEFAULT: "useAsDefault",
+  NAME: "name",
 } as const
 
 type TFieldValues = Readonly<{
@@ -62,6 +67,7 @@ type TFieldValues = Readonly<{
 }>
 type TCommonProps = Readonly<{
   providerID: TProviderID
+  name?: string
   isModal?: boolean
   addProvider?: boolean
   isDefault?: boolean
@@ -96,12 +102,21 @@ export function ConfigureProviderOptionsForm(props: TConfigureProviderOptionsFor
 type TProviderOptionsFormProps = TWithoutWorkspace
 function ProviderOptionsForm(props: TProviderOptionsFormProps) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const handleSave: TConfigureOptionsFormProps["onSave"] = useCallback(
-    async ({ providerID, config }) => {
-      ;(await client.providers.configure(providerID, config)).unwrap()
+    async ({ providerID, config, newName }) => {
+      let finalProviderID = providerID
+      if (newName && newName !== providerID) {
+        ;(await client.providers.rename(providerID, newName)).unwrap()
+        finalProviderID = newName
+      }
+      ;(await client.providers.configure(finalProviderID, config)).unwrap()
       await queryClient.invalidateQueries(QueryKeys.PROVIDERS)
+      if (newName && newName !== providerID) {
+        navigate(Routes.toProvider(newName), { replace: true })
+      }
     },
-    [queryClient]
+    [queryClient, navigate]
   )
 
   return <ConfigureOptionsForm {...props} onSave={handleSave} />
@@ -119,7 +134,11 @@ function WorkspaceProviderOptionsForm({ workspace, ...props }: TWorkspaceProvide
 type TConfigureOptionsFormProps = TConfigureProviderOptionsFormProps &
   Readonly<{
     onSave: (
-      args: Readonly<{ providerID: TProviderID; config: TConfigureProviderConfig }>
+      args: Readonly<{
+        providerID: TProviderID
+        config: TConfigureProviderConfig
+        newName?: string
+      }>
     ) => Promise<void>
   }>
 function ConfigureOptionsForm({
@@ -128,6 +147,7 @@ function ConfigureOptionsForm({
   onFinish,
   isDefault,
   reuseMachine,
+  name,
   addProvider = false,
   isModal = false,
   showBottomActionBar = true,
@@ -143,6 +163,7 @@ function ConfigureOptionsForm({
     defaultValues: {
       reuseMachine,
       useAsDefault: isDefault,
+      name: name,
     },
   })
   const { reuseMachineError, useAsDefaultError } = useFormErrors(
@@ -165,7 +186,7 @@ function ConfigureOptionsForm({
   } = useMutation<
     void,
     Error,
-    Readonly<{ providerID: TProviderID; config: TConfigureProviderConfig }>
+    Readonly<{ providerID: TProviderID; config: TConfigureProviderConfig; newName?: string }>
   >({
     mutationFn: onSave,
     onSuccess(_, { config: { options } }) {
@@ -203,7 +224,7 @@ function ConfigureOptionsForm({
     event.preventDefault()
 
     formMethods.handleSubmit((data) => {
-      const { useAsDefault, reuseMachine } = data
+      const { useAsDefault, reuseMachine, name } = data
       configureProvider({
         providerID,
         config: {
@@ -211,6 +232,7 @@ function ConfigureOptionsForm({
           useAsDefaultProvider: useAsDefault,
           options: filterOptions(data, allOptions),
         },
+        newName: name as string,
       })
     })(event)
   }
@@ -245,6 +267,10 @@ function ConfigureOptionsForm({
       <Form aria-readonly={true} onSubmit={handleSubmit}>
         <VStack align="start" width="full">
           <VStack align="start" spacing={8} position="relative" width="full">
+            <FormControl>
+              <FormLabel>Provider Name</FormLabel>
+              <Input {...formMethods.register(FieldName.NAME)} />
+            </FormControl>
             <Center
               opacity={isRefreshing ? "1" : "0"}
               pointerEvents={isRefreshing ? "auto" : "none"}
@@ -492,7 +518,7 @@ function useOptions(
       }
       changedOptions.push(option)
     }
-    if (changedOptions.length > 0) {
+    if (.length > 0) {
       refreshSubOptionsMutation({
         options: changedOptions.reduce((acc, o) => {
           const option = { value: opts[o] } as unknown as TProviderOption

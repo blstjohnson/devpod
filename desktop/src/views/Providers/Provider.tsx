@@ -25,6 +25,7 @@ export function Provider() {
       <ConfigureProviderOptionsForm
         containerRef={containerRef}
         providerID={providerID}
+        name={provider.id}
         isDefault={!!provider.default}
         addProvider={false}
         reuseMachine={!!provider.state?.singleMachine}

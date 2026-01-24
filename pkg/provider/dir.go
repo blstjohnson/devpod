@@ -420,3 +420,38 @@ func LoadWorkspaceResult(context, workspaceID string) (*config2.Result, error) {
 
 	return workspaceResult, nil
 }
+
+func RenameProvider(context, oldName, newName string) error {
+	// Check if a provider with the new name already exists
+	newProviderDir, err := GetProviderDir(context, newName)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(newProviderDir); !os.IsNotExist(err) {
+		return fmt.Errorf("provider with name %s already exists", newName)
+	}
+
+	// Load the provider config
+	providerConfig, err := LoadProviderConfig(context, oldName)
+	if err != nil {
+		return err
+	}
+
+	// Update the provider name
+	providerConfig.Name = newName
+
+	// Save the updated provider config to the new location
+	err = SaveProviderConfig(context, providerConfig)
+	if err != nil {
+		return err
+	}
+
+	// Get the directory of the old provider
+	oldProviderDir, err := GetProviderDir(context, oldName)
+	if err != nil {
+		return err
+	}
+
+	// remove the old provider directory
+	return os.RemoveAll(oldProviderDir)
+}
