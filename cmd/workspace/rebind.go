@@ -6,6 +6,7 @@ import (
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/provider"
+	"github.com/skevetter/devpod/pkg/workspace"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
@@ -41,12 +42,14 @@ func (cmd *RebindCmd) Run(args []string) error {
 		return err
 	}
 
-	workspaceConfig, err := provider.LoadWorkspaceConfig(devPodConfig.DefaultContext, workspaceName)
+	workspaceID := workspace.ToID(workspaceName)
+
+	workspaceConfig, err := provider.LoadWorkspaceConfig(devPodConfig.DefaultContext, workspaceID)
 	if err != nil {
 		return fmt.Errorf("loading workspace config: %w", err)
 	}
 
-	log.Default.Infof("Rebinding workspace %s from provider %s to %s", workspaceName, workspaceConfig.Provider.Name, newProviderName)
+	log.Default.Infof("Rebinding workspace %s (ID: %s) from provider %s to %s", workspaceName, workspaceID, workspaceConfig.Provider.Name, newProviderName)
 
 	workspaceConfig.Provider.Name = newProviderName
 
@@ -55,7 +58,7 @@ func (cmd *RebindCmd) Run(args []string) error {
 		return fmt.Errorf("saving workspace config: %w", err)
 	}
 
-	log.Default.Infof("Workspace %s rebound to provider %s", workspaceName, newProviderName)
+	log.Default.Infof("Workspace %s (ID: %s) rebound to provider %s", workspaceName, workspaceID, newProviderName)
 
 	return nil
 }

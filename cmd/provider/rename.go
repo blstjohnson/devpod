@@ -32,27 +32,12 @@ func NewRenameCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 
 		Short: "Rename a provider",
 
-		Long: `
+		Long: `Renames a provider and automatically rebinds all workspaces
+that are bound to it to use the new provider name.
 
-		#######################################################
-
-		############### devpod provider rename #################
-
-		#######################################################
-
-		Renames a provider.
-
-
-
-		WARNING: Renaming a provider will cause all workspaces bound to it to fail. You will have to manually edit the workspace configurations to use the new provider name.
-
-
-
-		Example:
-
-		devpod provider rename my-provider my-new-provider
-
-		`,
+Example:
+  devpod provider rename my-provider my-new-provider
+`,
 
 		Args: cobra.ExactArgs(2),
 
@@ -68,7 +53,7 @@ func NewRenameCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 // Run executes the command
 
 func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
-	log.Default.Warn("Renaming a provider might break existing workspaces, please make sure to check them after the provider is renamed.")
+	log.Default.Info("Renaming provider and rebinding workspaces...")
 
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -78,27 +63,82 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 	oldName := args[0]
 	newName := args[1]
 
+	// List all workspaces to determine which ones need rebinding
 	workspaces, err := workspace.ListLocalWorkspaces(devPodConfig.DefaultContext, false, log.Default)
 	if err != nil {
 		return fmt.Errorf("listing workspaces: %w", err)
 	}
 
+	// Collect workspaces that need to be rebound
+	var workspacesToRebind []*provider.Workspace
 	for _, ws := range workspaces {
 		if ws.Provider.Name == oldName {
-			log.Default.Infof("Rebinding workspace %s to provider %s", ws.ID, newName)
-			ws.Provider.Name = newName
-			err := provider.SaveWorkspaceConfig(ws)
-			if err != nil {
-				log.Default.Warnf("Failed to rebind workspace %s: %v", ws.ID, err)
-			}
+			workspacesToRebind = append(workspacesToRebind, ws)
 		}
 	}
 
+	if len(workspacesToRebind) > 0 {
+		log.Default.Infof("Found %d workspace(s) that will be rebound from provider '%s' to '%s'",
+			len(workspacesToRebind), oldName, newName)
+		for _, ws := range workspacesToRebind {
+			log.Default.Infof("- Workspace: %s", ws.ID)
+		}
+	} else {
+		log.Default.Info("No workspaces found that are bound to this provider")
+	}
+
+	// First, rename the provider
 	err = provider.RenameProvider(devPodConfig.DefaultContext, oldName, newName)
 	if err != nil {
 		return fmt.Errorf("failed to rename provider: %w", err)
 	}
 
-	return nil
+	log.Default.Infof("Provider successfully renamed from '%s' to '%s'", oldName, newName)
 
+	// Then, rebind all affected workspaces
+	var rebindErrors []error
+	var successfulRebinds []string
+
+	for _, ws := range workspacesToRebind {
+		log.Default.Infof("Rebinding workspace %s to provider %s", ws.ID, newName)
+		ws.Provider.Name = newName
+		err := provider.SaveWorkspaceConfig(ws)
+		if err != nil {
+			log.Default.Errorf("Failed to rebind workspace %s: %v", ws.ID, err)
+			rebindErrors = append(rebindErrors, fmt.Errorf("failed to rebind workspace %s: %w", ws.ID, err))
+		} else {
+			successfulRebinds = append(successfulRebinds, ws.ID)
+		}
+	}
+
+	// Report results
+	if len(successfulRebinds) > 0 {
+		log.Default.Donef("Successfully rebound %d workspace(s): %v", len(successfulRebinds), successfulRebinds)
+	}
+
+	if len(rebindErrors) > 0 {
+		log.Default.Errorf("Failed to rebind %d workspace(s)", len(rebindErrors))
+		for _, err := range rebindErrors {
+			log.Default.Error(err.Error())
+		}
+	}
+
+	// Return aggregated error if any rebinding failed
+	if len(rebindErrors) > 0 {
+		if len(rebindErrors) == 1 {
+			return rebindErrors[0]
+		}
+		// Aggregate multiple errors
+		errorMsg := fmt.Sprintf("failed to rebind %d workspace(s): ", len(rebindErrors))
+		for i, err := range rebindErrors {
+			if i > 0 {
+				errorMsg += "; "
+			}
+			errorMsg += err.Error()
+		}
+		return fmt.Errorf(errorMsg)
+	}
+
+	log.Default.Donef("Successfully renamed provider '%s' to '%s' and rebound all associated workspaces", oldName, newName)
+	return nil
 }

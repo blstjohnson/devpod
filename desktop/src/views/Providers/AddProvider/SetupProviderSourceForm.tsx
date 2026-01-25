@@ -377,7 +377,7 @@ export function SetupProviderSourceForm({
                     rules={{
                       pattern: {
                         value: ALLOWED_NAMES_REGEX,
-                        message: "Name can only contain letters, numbers and -",
+                        message: "Name can only contain lowercase letters, numbers and hyphens",
                       },
                       validate: {
                         unique: (value) => {

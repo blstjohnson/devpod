@@ -437,31 +437,37 @@ func RenameProvider(context, oldName, newName string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(newProviderDir); !os.IsNotExist(err) {
+
+	// Explicitly handle three cases for os.Stat
+	if _, err := os.Stat(newProviderDir); err == nil {
 		return fmt.Errorf("provider with name %s already exists", newName)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking if provider exists: %w", err)
 	}
 
-	// Load the provider config
-	providerConfig, err := LoadProviderConfig(context, oldName)
-	if err != nil {
-		return err
-	}
-
-	// Update the provider name
-	providerConfig.Name = newName
-
-	// Save the updated provider config to the new location
-	err = SaveProviderConfig(context, providerConfig)
-	if err != nil {
-		return err
-	}
-
-	// Get the directory of the old provider
 	oldProviderDir, err := GetProviderDir(context, oldName)
 	if err != nil {
 		return err
 	}
 
-	// remove the old provider directory
-	return os.RemoveAll(oldProviderDir)
+	providerConfig, err := LoadProviderConfig(context, oldName)
+	if err != nil {
+		return err
+	}
+
+	providerConfig.Name = newName
+
+	// Move entire provider directory to preserve binaries and state
+	err = os.Rename(oldProviderDir, newProviderDir)
+	if err != nil {
+		return fmt.Errorf("moving provider directory: %w", err)
+	}
+
+	// Update provider config in the moved directory
+	err = SaveProviderConfig(context, providerConfig)
+	if err != nil {
+		return fmt.Errorf("updating provider config after rename: %w", err)
+	}
+
+	return nil
 }

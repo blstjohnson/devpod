@@ -18,7 +18,7 @@ var _ = DevPodDescribe("devpod provider test suite", func() {
 		}
 
 		ginkgo.It("should add simple provider and delete it", func() {
-			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
@@ -48,7 +48,7 @@ var _ = DevPodDescribe("devpod provider test suite", func() {
 		})
 
 		ginkgo.It("should add simple provider and update it", func() {
-			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			defer framework.CleanupTempDir(initialDir, tempDir)
 
@@ -90,7 +90,7 @@ var _ = DevPodDescribe("devpod provider test suite", func() {
 		})
 
 		ginkgo.It("should list all providers", func() {
-			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
@@ -125,7 +125,7 @@ var _ = DevPodDescribe("devpod provider test suite", func() {
 		})
 
 		ginkgo.It("should parse options", func() {
-			tempDir, err := framework.CopyToTempDir("testdata/simple-k8s-provider")
+			tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 			framework.ExpectNoError(err)
 			ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 

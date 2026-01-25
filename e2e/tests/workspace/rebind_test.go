@@ -7,6 +7,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/skevetter/devpod/e2e/framework"
+	"github.com/skevetter/devpod/pkg/workspace"
 )
 
 var _ = framework.DevPodDescribe("devpod workspace rebind", func() {
@@ -47,14 +48,12 @@ var _ = framework.DevPodDescribe("devpod workspace rebind", func() {
 			err = f.DevPodUp(ctx, tempDir)
 			framework.ExpectNoError(err)
 
-			// Stop the workspace before rebinding (get workspace ID from directory name)
-			workspaceID := filepath.Base(tempDir)
+			// Normalize workspace ID using same method as DevPod internals
+			workspaceID := workspace.ToID(filepath.Base(tempDir))
 
-			// Stop the workspace first to ensure it's not running during rebind
 			err = f.DevPodStop(ctx, workspaceID)
 			framework.ExpectNoError(err)
 
-			// Rebind workspace to second provider
 			err = f.DevPodWorkspaceRebind(ctx, workspaceID, provider2Name)
 			framework.ExpectNoError(err)
 

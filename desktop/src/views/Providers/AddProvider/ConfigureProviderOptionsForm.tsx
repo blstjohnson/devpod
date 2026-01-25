@@ -106,11 +106,13 @@ function ProviderOptionsForm(props: TProviderOptionsFormProps) {
   const handleSave: TConfigureOptionsFormProps["onSave"] = useCallback(
     async ({ providerID, config, newName }) => {
       let finalProviderID = providerID
+      // Configure first, then rename to prevent UI route inconsistencies
+      ;(await client.providers.configure(providerID, config)).unwrap()
+
       if (newName && newName !== providerID) {
         ;(await client.providers.rename(providerID, newName)).unwrap()
         finalProviderID = newName
       }
-      ;(await client.providers.configure(finalProviderID, config)).unwrap()
       await queryClient.invalidateQueries(QueryKeys.PROVIDERS)
       if (newName && newName !== providerID) {
         navigate(Routes.toProvider(newName), { replace: true })
