@@ -33,7 +33,7 @@ repos:
       - id: actionlint
         files: '^\.github/workflows/'
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.3.11
+    rev: v2.3.12
     hooks:
       - id: biome-format
         exclude: '^(\.github/actions/|\.vscode/|desktop/|docs/|examples/)'
@@ -44,7 +44,7 @@ repos:
     hooks:
       - id: gitleaks
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.12.0
+    rev: v4.12.1
     hooks:
       - id: commitizen
         stages: [commit-msg]
