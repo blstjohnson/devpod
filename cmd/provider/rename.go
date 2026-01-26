@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
@@ -99,9 +100,22 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// If any rebinding failed, we need to rollback and delete the cloned provider
+	// If all rebinding succeeded, try to update default provider if needed
+	if len(rebindErrors) == 0 && devPodConfig.Current().DefaultProvider == oldName {
+		// Update the default provider to the new name
+		devPodConfig.Current().DefaultProvider = newName
+		err := config.SaveConfig(devPodConfig)
+		if err != nil {
+			log.Default.Errorf("Failed to update default provider to '%s': %v", newName, err)
+			rebindErrors = append(rebindErrors, fmt.Errorf("failed to update default provider: %w", err))
+		} else {
+			log.Default.Infof("Updated default provider from '%s' to '%s'", oldName, newName)
+		}
+	}
+
+	// If any rebinding or default provider update failed, we need to rollback and delete the cloned provider
 	if len(rebindErrors) > 0 {
-		log.Default.Info("Rebinding failed for some workspaces, rolling back changes...")
+		log.Default.Info("Rebinding or default provider update failed, rolling back changes...")
 
 		// Rollback successful rebinds back to the old provider name
 		for _, wsID := range successfulRebinds {
@@ -131,18 +145,19 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		if len(rebindErrors) == 1 {
 			return rebindErrors[0]
 		}
-		// Aggregate multiple errors
-		errorMsg := fmt.Sprintf("failed to rebind %d workspace(s): ", len(rebindErrors))
+		// Aggregate multiple errors using strings.Builder for efficiency
+		var errorMsg strings.Builder
+		fmt.Fprintf(&errorMsg, "failed to rebind %d workspace(s): ", len(rebindErrors))
 		for i, err := range rebindErrors {
 			if i > 0 {
-				errorMsg += "; "
+				errorMsg.WriteString("; ")
 			}
-			errorMsg += err.Error()
+			errorMsg.WriteString(err.Error())
 		}
-		return fmt.Errorf("%s", errorMsg)
+		return fmt.Errorf("%s", errorMsg.String())
 	}
 
-	// If all rebinding succeeded, delete the old provider
+	// Now delete the old provider
 	deleteErr := DeleteProviderConfig(devPodConfig, oldName, true)
 	if deleteErr != nil {
 		log.Default.Errorf("Failed to delete old provider %s: %v", oldName, deleteErr)
