@@ -27,7 +27,7 @@
     "@headlessui/react": "1.7.19",
     "@kubernetes/client-node": "1.4.0",
     "@loft-enterprise/client": "https://github.com/loft-sh/loft-javascript-client#v4.3.0-devpod.alpha.11",
-    "@tanstack/react-query": "4.42.1",
+    "@tanstack/react-query": "4.42.2",
     "@tanstack/react-query-devtools": "4.42.0",
     "@tanstack/react-table": "8.21.3",
     "@tauri-apps/api": "2.9.1",
@@ -69,8 +69,8 @@
     "@types/node": "24.10.9",
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
-    "@typescript-eslint/eslint-plugin": "8.53.0",
-    "@typescript-eslint/parser": "8.53.0",
+    "@typescript-eslint/eslint-plugin": "8.53.1",
+    "@typescript-eslint/parser": "8.53.1",
     "@vitejs/plugin-react": "5.1.2",
     "eslint": "9.39.2",
     "eslint-config-prettier": "10.1.8",
@@ -78,10 +78,10 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "5.2.0",
     "eslint-plugin-react-refresh": "0.4.26",
-    "globals": "16.5.0",
+    "globals": "17.1.0",
     "prettier": "3.8.1",
     "typescript": "5.9.3",
-    "vite": "6.4.1"
+    "vite": "7.3.1"
   },
   "resolutions": {
     "lodash": "4.17.23"

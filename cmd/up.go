@@ -75,58 +75,111 @@ type UpCmd struct {
 
 // NewUpCmd creates a new up command
 func NewUpCmd(f *flags.GlobalFlags) *cobra.Command {
-	cmd := &UpCmd{
-		GlobalFlags: f,
-	}
+	cmd := &UpCmd{GlobalFlags: f}
 	upCmd := &cobra.Command{
 		Use:   "up [flags] [workspace-path|workspace-name]",
 		Short: "Starts a new workspace",
-		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			if cmd.ExtraDevContainerPath != "" {
-				absExtraPath, err := filepath.Abs(cmd.ExtraDevContainerPath)
-				if err != nil {
-					return err
-				}
-				cmd.ExtraDevContainerPath = absExtraPath
-			}
-			devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
-			if err != nil {
-				return err
-			}
-
-			if devPodConfig.ContextOption(config.ContextOptionSSHStrictHostKeyChecking) == "true" {
-				cmd.StrictHostKeyChecking = true
-			}
-
-			ctx, cancel := WithSignals(cobraCmd.Context())
-			defer cancel()
-
-			client, logger, err := cmd.prepareClient(ctx, devPodConfig, args)
-			if err != nil {
-				return fmt.Errorf("prepare workspace client %w", err)
-			}
-
-			if cmd.ExtraDevContainerPath != "" && client.Provider() != "docker" {
-				return fmt.Errorf("extra devcontainer file is only supported with local provider")
-			}
-
-			telemetry.CollectorCLI.SetClient(client)
-
-			return cmd.Run(ctx, devPodConfig, client, args, logger)
-		},
+		RunE:  cmd.execute,
 	}
+	cmd.registerFlags(upCmd)
+	return upCmd
+}
+
+func (cmd *UpCmd) execute(cobraCmd *cobra.Command, args []string) error {
+	if err := cmd.validate(); err != nil {
+		return err
+	}
+	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
+	if err != nil {
+		return err
+	}
+	if devPodConfig.ContextOption(config.ContextOptionSSHStrictHostKeyChecking) == "true" {
+		cmd.StrictHostKeyChecking = true
+	}
+
+	ctx, cancel := WithSignals(cobraCmd.Context())
+	defer cancel()
+
+	client, logger, err := cmd.prepareClient(ctx, devPodConfig, args)
+	if err != nil {
+		return fmt.Errorf("prepare workspace client %w", err)
+	}
+	if cmd.ExtraDevContainerPath != "" && client.Provider() != "docker" {
+		return fmt.Errorf("extra devcontainer file is only supported with local provider")
+	}
+
+	telemetry.CollectorCLI.SetClient(client)
+	return cmd.Run(ctx, devPodConfig, client, args, logger)
+}
+
+func (cmd *UpCmd) validate() error {
+	if err := validatePodmanFlags(cmd); err != nil {
+		return err
+	}
+	if cmd.ExtraDevContainerPath != "" {
+		absPath, err := filepath.Abs(cmd.ExtraDevContainerPath)
+		if err != nil {
+			return err
+		}
+		cmd.ExtraDevContainerPath = absPath
+	}
+	return nil
+}
+
+func (cmd *UpCmd) registerFlags(upCmd *cobra.Command) {
+	cmd.registerSSHFlags(upCmd)
+	cmd.registerDotfilesFlags(upCmd)
+	cmd.registerDevContainerFlags(upCmd)
+	cmd.registerIDEFlags(upCmd)
+	cmd.registerGitFlags(upCmd)
+	cmd.registerPodmanFlags(upCmd)
+	cmd.registerWorkspaceFlags(upCmd)
+	cmd.registerTestingFlags(upCmd)
+}
+
+func (cmd *UpCmd) registerSSHFlags(upCmd *cobra.Command) {
 	upCmd.Flags().BoolVar(&cmd.ConfigureSSH, "configure-ssh", true, "If true will configure the ssh config to include the DevPod workspace")
 	upCmd.Flags().BoolVar(&cmd.GPGAgentForwarding, "gpg-agent-forwarding", false, "If true forward the local gpg-agent to the DevPod workspace")
 	upCmd.Flags().StringVar(&cmd.SSHConfigPath, "ssh-config", "", "The path to the ssh config to modify, if empty will use ~/.ssh/config")
+}
+
+func (cmd *UpCmd) registerDotfilesFlags(upCmd *cobra.Command) {
 	upCmd.Flags().StringVar(&cmd.DotfilesSource, "dotfiles", "", "The path or url to the dotfiles to use in the container")
 	upCmd.Flags().StringVar(&cmd.DotfilesScript, "dotfiles-script", "", "The path in dotfiles directory to use to install the dotfiles, if empty will try to guess")
 	upCmd.Flags().StringSliceVar(&cmd.DotfilesScriptEnv, "dotfiles-script-env", []string{}, "Extra environment variables to put into the dotfiles install script. E.g. MY_ENV_VAR=MY_VALUE")
 	upCmd.Flags().StringSliceVar(&cmd.DotfilesScriptEnvFile, "dotfiles-script-env-file", []string{}, "The path to files containing environment variables to set for the dotfiles install script")
-	upCmd.Flags().StringArrayVar(&cmd.IDEOptions, "ide-option", []string{}, "IDE option in the form KEY=VALUE")
+}
+
+func (cmd *UpCmd) registerDevContainerFlags(upCmd *cobra.Command) {
 	upCmd.Flags().StringVar(&cmd.DevContainerImage, "devcontainer-image", "", "The container image to use, this will override the devcontainer.json value in the project")
 	upCmd.Flags().StringVar(&cmd.DevContainerPath, "devcontainer-path", "", "The path to the devcontainer.json relative to the project")
 	upCmd.Flags().StringVar(&cmd.DevContainerID, "devcontainer-id", "", "The ID of the devcontainer to use when multiple exist (e.g., folder name in .devcontainer/FOLDER/devcontainer.json)")
 	upCmd.Flags().StringVar(&cmd.ExtraDevContainerPath, "extra-devcontainer-path", "", "The path to an additional devcontainer.json file to override original devcontainer.json")
+	upCmd.Flags().StringVar(&cmd.FallbackImage, "fallback-image", "", "The fallback image to use if no devcontainer configuration has been detected")
+}
+
+func (cmd *UpCmd) registerIDEFlags(upCmd *cobra.Command) {
+	upCmd.Flags().StringVar(&cmd.IDE, "ide", "", "The IDE to open the workspace in. If empty will use vscode locally or in browser")
+	upCmd.Flags().StringArrayVar(&cmd.IDEOptions, "ide-option", []string{}, "IDE option in the form KEY=VALUE")
+	upCmd.Flags().BoolVar(&cmd.OpenIDE, "open-ide", true, "If this is false and an IDE is configured, DevPod will only install the IDE server backend, but not open it")
+}
+
+func (cmd *UpCmd) registerGitFlags(upCmd *cobra.Command) {
+	upCmd.Flags().Var(&cmd.GitCloneStrategy, "git-clone-strategy", "The git clone strategy DevPod uses to checkout git based workspaces. Can be full (default), blobless, treeless or shallow")
+	upCmd.Flags().BoolVar(&cmd.GitCloneRecursiveSubmodules, "git-clone-recursive-submodules", false, "If true will clone git submodule repositories recursively")
+	upCmd.Flags().StringVar(&cmd.GitSSHSigningKey, "git-ssh-signing-key", "", "The ssh key to use when signing git commits. Used to explicitly setup DevPod's ssh signature forwarding with given key. Should be same format as value of `git config user.signingkey`")
+}
+
+func (cmd *UpCmd) registerPodmanFlags(upCmd *cobra.Command) {
+	upCmd.Flags().StringVar(&cmd.Userns, "userns", "", "User namespace to use for the container (Podman only; e.g. \"keep-id\", \"host\", or \"auto\")")
+	upCmd.Flags().StringSliceVar(&cmd.UidMap, "uidmap", []string{}, "UID mapping for Podman user namespace (Podman only; format: container_id:host_id:amount, e.g. \"0:1000:1\")")
+	upCmd.Flags().StringSliceVar(&cmd.GidMap, "gidmap", []string{}, "GID mapping for Podman user namespace (Podman only; format: container_id:host_id:amount, e.g. \"0:1000:1\")")
+}
+
+func (cmd *UpCmd) registerWorkspaceFlags(upCmd *cobra.Command) {
+	upCmd.Flags().StringVar(&cmd.ID, "id", "", "The id to use for the workspace")
+	upCmd.Flags().StringVar(&cmd.Machine, "machine", "", "The machine to use for this workspace. The machine needs to exist beforehand or the command will fail. If the workspace already exists, this option has no effect")
+	upCmd.Flags().StringVar(&cmd.Source, "source", "", "Optional source for the workspace. E.g. git:https://github.com/my-org/my-repo")
 	upCmd.Flags().StringArrayVar(&cmd.ProviderOptions, "provider-option", []string{}, "Provider option in the form KEY=VALUE")
 	upCmd.Flags().BoolVar(&cmd.Reconfigure, "reconfigure", false, "Reconfigure the options for this workspace. Only supported in DevPod Pro right now.")
 	upCmd.Flags().BoolVar(&cmd.Recreate, "recreate", false, "If true will remove any existing containers and recreate them")
@@ -135,26 +188,14 @@ func NewUpCmd(f *flags.GlobalFlags) *cobra.Command {
 	upCmd.Flags().StringArrayVar(&cmd.WorkspaceEnv, "workspace-env", []string{}, "Extra env variables to put into the workspace. E.g. MY_ENV_VAR=MY_VALUE")
 	upCmd.Flags().StringSliceVar(&cmd.WorkspaceEnvFile, "workspace-env-file", []string{}, "The path to files containing a list of extra env variables to put into the workspace. E.g. MY_ENV_VAR=MY_VALUE")
 	upCmd.Flags().StringArrayVar(&cmd.InitEnv, "init-env", []string{}, "Extra env variables to inject during the initialization of the workspace. E.g. MY_ENV_VAR=MY_VALUE")
-	upCmd.Flags().StringVar(&cmd.ID, "id", "", "The id to use for the workspace")
-	upCmd.Flags().StringVar(&cmd.Machine, "machine", "", "The machine to use for this workspace. The machine needs to exist beforehand or the command will fail. If the workspace already exists, this option has no effect")
-	upCmd.Flags().StringVar(&cmd.IDE, "ide", "", "The IDE to open the workspace in. If empty will use vscode locally or in browser")
-	upCmd.Flags().BoolVar(&cmd.OpenIDE, "open-ide", true, "If this is false and an IDE is configured, DevPod will only install the IDE server backend, but not open it")
-	upCmd.Flags().Var(&cmd.GitCloneStrategy, "git-clone-strategy", "The git clone strategy DevPod uses to checkout git based workspaces. Can be full (default), blobless, treeless or shallow")
-	upCmd.Flags().BoolVar(&cmd.GitCloneRecursiveSubmodules, "git-clone-recursive-submodules", false, "If true will clone git submodule repositories recursively")
-	upCmd.Flags().StringVar(&cmd.GitSSHSigningKey, "git-ssh-signing-key", "", "The ssh key to use when signing git commits. Used to explicitly setup DevPod's ssh signature forwarding with given key. Should be same format as value of `git config user.signingkey`")
-	upCmd.Flags().StringVar(&cmd.FallbackImage, "fallback-image", "", "The fallback image to use if no devcontainer configuration has been detected")
 	upCmd.Flags().BoolVar(&cmd.DisableDaemon, "disable-daemon", false, "If enabled, will not install a daemon into the target machine to track activity")
-	upCmd.Flags().StringVar(&cmd.Source, "source", "", "Optional source for the workspace. E.g. git:https://github.com/my-org/my-repo")
-	upCmd.Flags().StringVar(&cmd.Userns, "userns", "", "User namespace to use for the container (Podman only; e.g. \"keep-id\", \"host\", or \"auto\")")
-	upCmd.Flags().StringSliceVar(&cmd.UidMap, "uidmap", []string{}, "UID mapping for Podman user namespace (Podman only; format: container_id:host_id:amount, e.g. \"0:1000:1\")")
-	upCmd.Flags().StringSliceVar(&cmd.GidMap, "gidmap", []string{}, "GID mapping for Podman user namespace (Podman only; format: container_id:host_id:amount, e.g. \"0:1000:1\")")
+}
 
-	// testing
+func (cmd *UpCmd) registerTestingFlags(upCmd *cobra.Command) {
 	upCmd.Flags().StringVar(&cmd.DaemonInterval, "daemon-interval", "", "TESTING ONLY")
 	_ = upCmd.Flags().MarkHidden("daemon-interval")
 	upCmd.Flags().BoolVar(&cmd.ForceDockerless, "force-dockerless", false, "TESTING ONLY")
 	_ = upCmd.Flags().MarkHidden("force-dockerless")
-	return upCmd
 }
 
 // Run runs the command logic
@@ -165,38 +206,64 @@ func (cmd *UpCmd) Run(
 	args []string,
 	log log.Logger,
 ) error {
-	// a reset implies a recreate
+	cmd.prepareWorkspace(client, log)
+
+	wctx, err := cmd.executeDevPodUp(ctx, devPodConfig, client, log)
+	if err != nil {
+		return err
+	}
+	if wctx == nil {
+		return nil // Platform mode
+	}
+
+	if err := cmd.configureWorkspace(devPodConfig, client, wctx, log); err != nil {
+		return err
+	}
+
+	return cmd.openIDE(ctx, devPodConfig, client, wctx, log)
+}
+
+// workspaceContext holds the result of workspace preparation
+type workspaceContext struct {
+	result  *config2.Result
+	user    string
+	workdir string
+}
+
+// prepareWorkspace handles initial setup and validation
+func (cmd *UpCmd) prepareWorkspace(client client2.BaseWorkspaceClient, log log.Logger) {
 	if cmd.Reset {
 		cmd.Recreate = true
 	}
 
-	// check if we are a browser IDE and need to reuse the SSH_AUTH_SOCK
 	targetIDE := client.WorkspaceConfig().IDE.Name
-	// Check override
 	if cmd.IDE != "" {
 		targetIDE = cmd.IDE
 	}
+
 	if !cmd.Platform.Enabled && ide.ReusesAuthSock(targetIDE) {
 		cmd.SSHAuthSockID = util.RandStringBytes(10)
 		log.Debug("Reusing SSH_AUTH_SOCK", cmd.SSHAuthSockID)
 	} else if cmd.Platform.Enabled && ide.ReusesAuthSock(targetIDE) {
 		log.Debug("Reusing SSH_AUTH_SOCK is not supported with platform mode, consider launching the IDE from the platform UI")
 	}
+}
 
-	// run devpod agent up
+// executeDevPodUp runs the agent and returns workspace context
+func (cmd *UpCmd) executeDevPodUp(ctx context.Context, devPodConfig *config.Config, client client2.BaseWorkspaceClient, log log.Logger) (*workspaceContext, error) {
 	result, err := cmd.devPodUp(ctx, devPodConfig, client, log)
 	if err != nil {
-		return err
-	} else if result == nil {
-		return fmt.Errorf("didn't receive a result back from agent")
-	} else if cmd.Platform.Enabled {
-		return nil
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("did not receive a result back from agent")
+	}
+	if cmd.Platform.Enabled {
+		return nil, nil
 	}
 
-	// get user from result
 	user := config2.GetRemoteUser(result)
-
-	var workdir string
+	workdir := ""
 	if result.MergedConfig != nil && result.MergedConfig.WorkspaceFolder != "" {
 		workdir = result.MergedConfig.WorkspaceFolder
 	}
@@ -205,174 +272,169 @@ func (cmd *UpCmd) Run(
 		workdir = result.SubstitutionContext.ContainerWorkspaceFolder
 	}
 
-	// configure container ssh
+	return &workspaceContext{result: result, user: user, workdir: workdir}, nil
+}
+
+// configureWorkspace sets up SSH, Git, and dotfiles
+func (cmd *UpCmd) configureWorkspace(devPodConfig *config.Config, client client2.BaseWorkspaceClient, wctx *workspaceContext, log log.Logger) error {
 	if cmd.ConfigureSSH {
 		devPodHome := ""
-		envDevPodHome, ok := os.LookupEnv("DEVPOD_HOME")
-		if ok {
+		if envDevPodHome, ok := os.LookupEnv("DEVPOD_HOME"); ok {
 			devPodHome = envDevPodHome
 		}
 		setupGPGAgentForwarding := cmd.GPGAgentForwarding || devPodConfig.ContextOption(config.ContextOptionGPGAgentForwarding) == "true"
 		sshConfigIncludePath := devPodConfig.ContextOption(config.ContextOptionSSHConfigIncludePath)
 
-		err = configureSSH(client, configureSSHParams{
+		if err := configureSSH(client, configureSSHParams{
 			sshConfigPath:        cmd.SSHConfigPath,
 			sshConfigIncludePath: sshConfigIncludePath,
-			user:                 user,
-			workdir:              workdir,
+			user:                 wctx.user,
+			workdir:              wctx.workdir,
 			gpgagent:             setupGPGAgentForwarding,
 			devPodHome:           devPodHome,
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
 
-		log.WithFields(logrus.Fields{"workspace": client.Workspace()}).Info("SSH command available: ssh " + client.Workspace() + ".devpod")
+		log.Info("SSH configuration completed in workspace")
 	}
 
-	// setup git ssh signature
 	if cmd.GitSSHSigningKey != "" {
-		err = setupGitSSHSignature(cmd.GitSSHSigningKey, client, log)
-		if err != nil {
+		if err := setupGitSSHSignature(cmd.GitSSHSigningKey, client, log); err != nil {
 			return err
 		}
 	}
 
-	// setup dotfiles in the container
-	err = setupDotfiles(cmd.DotfilesSource, cmd.DotfilesScript, cmd.DotfilesScriptEnvFile, cmd.DotfilesScriptEnv, client, devPodConfig, log)
-	if err != nil {
-		return err
+	return setupDotfiles(cmd.DotfilesSource, cmd.DotfilesScript, cmd.DotfilesScriptEnvFile, cmd.DotfilesScriptEnv, client, devPodConfig, log)
+}
+
+// openIDE opens the configured IDE
+func (cmd *UpCmd) openIDE(ctx context.Context, devPodConfig *config.Config, client client2.BaseWorkspaceClient, wctx *workspaceContext, log log.Logger) error {
+	if !cmd.OpenIDE {
+		return nil
 	}
 
-	// open ide
-	if cmd.OpenIDE {
-		ideConfig := client.WorkspaceConfig().IDE
-		switch ideConfig.Name {
-		case string(config.IDEVSCode):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorStable,
-				log,
-			)
-		case string(config.IDEVSCodeInsiders):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorInsiders,
-				log,
-			)
-		case string(config.IDECursor):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorCursor,
-				log,
-			)
-		case string(config.IDECodium):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorCodium,
-				log,
-			)
-		case string(config.IDEPositron):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorPositron,
-				log,
-			)
-		case string(config.IDEWindsurf):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorWindsurf,
-				log,
-			)
-		case string(config.IDEAntigravity):
-			return vscode.Open(
-				ctx,
-				client.Workspace(),
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				vscode.Options.GetValue(ideConfig.Options, vscode.OpenNewWindow) == "true",
-				vscode.FlavorAntigravity,
-				log,
-			)
-		case string(config.IDEOpenVSCode):
-			return startVSCodeInBrowser(
-				cmd.GPGAgentForwarding,
-				ctx,
-				devPodConfig,
-				client,
-				result.SubstitutionContext.ContainerWorkspaceFolder,
-				user,
-				ideConfig.Options,
-				cmd.SSHAuthSockID,
-				log,
-			)
-		case string(config.IDERustRover):
-			return jetbrains.NewRustRoverServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEGoland):
-			return jetbrains.NewGolandServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEPyCharm):
-			return jetbrains.NewPyCharmServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEPhpStorm):
-			return jetbrains.NewPhpStorm(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEIntellij):
-			return jetbrains.NewIntellij(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDECLion):
-			return jetbrains.NewCLionServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDERider):
-			return jetbrains.NewRiderServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDERubyMine):
-			return jetbrains.NewRubyMineServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEWebStorm):
-			return jetbrains.NewWebStormServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEDataSpell):
-			return jetbrains.NewDataSpellServer(config2.GetRemoteUser(result), ideConfig.Options, log).OpenGateway(result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace())
-		case string(config.IDEFleet):
-			return startFleet(ctx, client, log)
-		case string(config.IDEZed):
-			return zed.Open(ctx, ideConfig.Options, config2.GetRemoteUser(result), result.SubstitutionContext.ContainerWorkspaceFolder, client.Workspace(), log)
-		case string(config.IDEJupyterNotebook):
-			return startJupyterNotebookInBrowser(
-				cmd.GPGAgentForwarding,
-				ctx,
-				devPodConfig,
-				client,
-				user,
-				ideConfig.Options,
-				cmd.SSHAuthSockID,
-				log,
-			)
-		case string(config.IDERStudio):
-			return startRStudioInBrowser(
-				cmd.GPGAgentForwarding,
-				ctx,
-				devPodConfig,
-				client,
-				user,
-				ideConfig.Options,
-				cmd.SSHAuthSockID,
-				log,
-			)
-		}
+	ideConfig := client.WorkspaceConfig().IDE
+	opener := newIDEOpener(cmd, devPodConfig, client, wctx, log)
+	return opener.open(ctx, ideConfig.Name, ideConfig.Options)
+}
+
+// ideOpener handles opening different IDE types
+type ideOpener struct {
+	cmd          *UpCmd
+	devPodConfig *config.Config
+	client       client2.BaseWorkspaceClient
+	wctx         *workspaceContext
+	log          log.Logger
+}
+
+func newIDEOpener(cmd *UpCmd, devPodConfig *config.Config, client client2.BaseWorkspaceClient, wctx *workspaceContext, log log.Logger) *ideOpener {
+	return &ideOpener{
+		cmd:          cmd,
+		devPodConfig: devPodConfig,
+		client:       client,
+		wctx:         wctx,
+		log:          log,
+	}
+}
+
+func (o *ideOpener) open(ctx context.Context, ideName string, ideOptions map[string]config.OptionValue) error {
+	folder := o.wctx.result.SubstitutionContext.ContainerWorkspaceFolder
+	workspace := o.client.Workspace()
+	user := o.wctx.user
+
+	switch ideName {
+	case string(config.IDEVSCode), string(config.IDEVSCodeInsiders), string(config.IDECursor),
+		string(config.IDECodium), string(config.IDEPositron), string(config.IDEWindsurf), string(config.IDEAntigravity):
+		return o.openVSCodeFlavor(ctx, ideName, folder, ideOptions)
+
+	case string(config.IDERustRover), string(config.IDEGoland), string(config.IDEPyCharm),
+		string(config.IDEPhpStorm), string(config.IDEIntellij), string(config.IDECLion),
+		string(config.IDERider), string(config.IDERubyMine), string(config.IDEWebStorm), string(config.IDEDataSpell):
+		return o.openJetBrains(ideName, folder, workspace, user, ideOptions)
+
+	case string(config.IDEOpenVSCode):
+		return startVSCodeInBrowser(o.cmd.GPGAgentForwarding, ctx, o.devPodConfig, o.client, folder, user, ideOptions, o.cmd.SSHAuthSockID, o.log)
+
+	case string(config.IDEFleet):
+		return startFleet(ctx, o.client, o.log)
+
+	case string(config.IDEZed):
+		return zed.Open(ctx, ideOptions, user, folder, workspace, o.log)
+
+	case string(config.IDEJupyterNotebook):
+		return startJupyterNotebookInBrowser(o.cmd.GPGAgentForwarding, ctx, o.devPodConfig, o.client, user, ideOptions, o.cmd.SSHAuthSockID, o.log)
+
+	case string(config.IDERStudio):
+		return startRStudioInBrowser(o.cmd.GPGAgentForwarding, ctx, o.devPodConfig, o.client, user, ideOptions, o.cmd.SSHAuthSockID, o.log)
+
+	default:
+		return nil
+	}
+}
+
+func (o *ideOpener) openVSCodeFlavor(ctx context.Context, ideName, folder string, ideOptions map[string]config.OptionValue) error {
+	flavorMap := map[string]vscode.Flavor{
+		string(config.IDEVSCode):         vscode.FlavorStable,
+		string(config.IDEVSCodeInsiders): vscode.FlavorInsiders,
+		string(config.IDECursor):         vscode.FlavorCursor,
+		string(config.IDECodium):         vscode.FlavorCodium,
+		string(config.IDEPositron):       vscode.FlavorPositron,
+		string(config.IDEWindsurf):       vscode.FlavorWindsurf,
+		string(config.IDEAntigravity):    vscode.FlavorAntigravity,
 	}
 
-	return nil
+	params := vscode.OpenParams{
+		Workspace: o.client.Workspace(),
+		Folder:    folder,
+		NewWindow: vscode.Options.GetValue(ideOptions, vscode.OpenNewWindow) == "true",
+		Flavor:    flavorMap[ideName],
+		Log:       o.log,
+	}
+
+	return vscode.Open(ctx, params)
+}
+
+func (o *ideOpener) openJetBrains(ideName, folder, workspace, user string, ideOptions map[string]config.OptionValue) error {
+	type jetbrainsFactory func() interface{ OpenGateway(string, string) error }
+
+	jetbrainsMap := map[string]jetbrainsFactory{
+		string(config.IDERustRover): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewRustRoverServer(user, ideOptions, o.log)
+		},
+		string(config.IDEGoland): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewGolandServer(user, ideOptions, o.log)
+		},
+		string(config.IDEPyCharm): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewPyCharmServer(user, ideOptions, o.log)
+		},
+		string(config.IDEPhpStorm): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewPhpStorm(user, ideOptions, o.log)
+		},
+		string(config.IDEIntellij): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewIntellij(user, ideOptions, o.log)
+		},
+		string(config.IDECLion): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewCLionServer(user, ideOptions, o.log)
+		},
+		string(config.IDERider): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewRiderServer(user, ideOptions, o.log)
+		},
+		string(config.IDERubyMine): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewRubyMineServer(user, ideOptions, o.log)
+		},
+		string(config.IDEWebStorm): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewWebStormServer(user, ideOptions, o.log)
+		},
+		string(config.IDEDataSpell): func() interface{ OpenGateway(string, string) error } {
+			return jetbrains.NewDataSpellServer(user, ideOptions, o.log)
+		},
+	}
+
+	if factory, ok := jetbrainsMap[ideName]; ok {
+		return factory().OpenGateway(folder, workspace)
+	}
+	return fmt.Errorf("unknown JetBrains IDE: %s", ideName)
 }
 
 func (cmd *UpCmd) devPodUp(
@@ -1044,6 +1106,7 @@ func configureSSH(client client2.BaseWorkspaceClient, params configureSSHParams)
 		Workdir:              params.workdir,
 		GPGAgent:             params.gpgagent,
 		DevPodHome:           params.devPodHome,
+		Provider:             client.Provider(),
 		Log:                  log.Default,
 	})
 	if err != nil {
@@ -1524,4 +1587,34 @@ func WithSignals(ctx context.Context) (context.Context, func()) {
 		cancel()
 		signal.Stop(signals)
 	}
+}
+
+func validatePodmanFlags(cmd *UpCmd) error {
+	if cmd.Userns != "" && (len(cmd.UidMap) > 0 || len(cmd.GidMap) > 0) {
+		return fmt.Errorf("--userns cannot be combined with --uidmap or --gidmap (mutually exclusive)")
+	}
+	for _, m := range cmd.UidMap {
+		if !isValidMapping(m) {
+			return fmt.Errorf("invalid --uidmap format: %s (expected: container_id:host_id:amount)", m)
+		}
+	}
+	for _, m := range cmd.GidMap {
+		if !isValidMapping(m) {
+			return fmt.Errorf("invalid --gidmap format: %s (expected: container_id:host_id:amount)", m)
+		}
+	}
+	return nil
+}
+
+func isValidMapping(mapping string) bool {
+	parts := strings.Split(mapping, ":")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if _, err := strconv.Atoi(part); err != nil {
+			return false
+		}
+	}
+	return true
 }
