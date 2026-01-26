@@ -12,48 +12,35 @@ import (
 )
 
 // RenameCmd holds the cmd flags
-
 type RenameCmd struct {
 	*flags.GlobalFlags
 }
 
 // NewRenameCmd creates a new command
-
 func NewRenameCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
-
 	cmd := &RenameCmd{
-
 		GlobalFlags: globalFlags,
 	}
 
 	return &cobra.Command{
-
-		Use: "rename",
-
+		Use:   "rename",
 		Short: "Rename a provider",
-
-		Long: `Renames a provider and automatically rebinds all workspaces
-that are bound to it to use the new provider name.
+		Long: `Renames a provider by cloning it with the new name, automatically rebinds all workspaces
+that are bound to it to use the new provider name, and cleans up the old provider.
 
 Example:
   devpod provider rename my-provider my-new-provider
 `,
-
 		Args: cobra.ExactArgs(2),
-
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-
 			return cmd.Run(cobraCmd, args)
-
 		},
 	}
-
 }
 
 // Run executes the command
-
 func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
-	log.Default.Info("Renaming provider and rebinding workspaces...")
+	log.Default.Info("Renaming provider using clone and rebinding workspaces...")
 
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -87,21 +74,22 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		log.Default.Info("No workspaces found that are bound to this provider")
 	}
 
-	// First, rename the provider
-	err = provider.RenameProvider(devPodConfig.DefaultContext, oldName, newName)
-	if err != nil {
-		return fmt.Errorf("failed to rename provider: %w", err)
+	// Clone the provider with the new name
+	_, cloneErr := workspace.CloneProvider(devPodConfig, newName, oldName, log.Default)
+	if cloneErr != nil {
+		return fmt.Errorf("failed to clone provider: %w", cloneErr)
 	}
 
-	log.Default.Infof("Provider successfully renamed from '%s' to '%s'", oldName, newName)
+	log.Default.Infof("Provider successfully cloned from '%s' to '%s'", oldName, newName)
 
-	// Then, rebind all affected workspaces
+	// Rebind all affected workspaces to the new provider
 	var rebindErrors []error
 	var successfulRebinds []string
 
 	for _, ws := range workspacesToRebind {
 		log.Default.Infof("Rebinding workspace %s to provider %s", ws.ID, newName)
 		ws.Provider.Name = newName
+
 		err := provider.SaveWorkspaceConfig(ws)
 		if err != nil {
 			log.Default.Errorf("Failed to rebind workspace %s: %v", ws.ID, err)
@@ -111,20 +99,35 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Report results
-	if len(successfulRebinds) > 0 {
-		log.Default.Donef("Successfully rebound %d workspace(s): %v", len(successfulRebinds), successfulRebinds)
-	}
-
+	// If any rebinding failed, we need to rollback and delete the cloned provider
 	if len(rebindErrors) > 0 {
-		log.Default.Errorf("Failed to rebind %d workspace(s)", len(rebindErrors))
-		for _, err := range rebindErrors {
-			log.Default.Error(err.Error())
+		log.Default.Info("Rebinding failed for some workspaces, rolling back changes...")
+
+		// Rollback successful rebinds back to the old provider name
+		for _, wsID := range successfulRebinds {
+			workspaceConfig, loadErr := provider.LoadWorkspaceConfig(devPodConfig.DefaultContext, wsID)
+			if loadErr != nil {
+				log.Default.Errorf("Failed to load workspace %s for rollback: %v", wsID, loadErr)
+				continue
+			}
+
+			log.Default.Infof("Rolling back workspace %s to original provider %s", wsID, oldName)
+			workspaceConfig.Provider.Name = oldName
+			if rollbackErr := provider.SaveWorkspaceConfig(workspaceConfig); rollbackErr != nil {
+				log.Default.Errorf("Failed to rollback workspace %s: %v", wsID, rollbackErr)
+			}
 		}
-	}
 
-	// Return aggregated error if any rebinding failed
-	if len(rebindErrors) > 0 {
+		// Delete the cloned provider
+		err := DeleteProviderConfig(devPodConfig, newName, true)
+		if err != nil {
+			log.Default.Errorf("Failed to delete cloned provider %s during cleanup: %v", newName, err)
+			return fmt.Errorf("failed to rebind workspaces and failed to cleanup cloned provider: %v; original error: %v", err, rebindErrors[0])
+		}
+
+		log.Default.Infof("Cloned provider %s deleted successfully", newName)
+
+		// Return aggregated error if any rebinding failed
 		if len(rebindErrors) == 1 {
 			return rebindErrors[0]
 		}
@@ -136,8 +139,17 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 			}
 			errorMsg += err.Error()
 		}
-		return fmt.Errorf(errorMsg)
+		return fmt.Errorf("%s", errorMsg)
 	}
+
+	// If all rebinding succeeded, delete the old provider
+	deleteErr := DeleteProviderConfig(devPodConfig, oldName, true)
+	if deleteErr != nil {
+		log.Default.Errorf("Failed to delete old provider %s: %v", oldName, deleteErr)
+		return fmt.Errorf("failed to delete old provider after successful rename: %w", deleteErr)
+	}
+
+	log.Default.Infof("Old provider %s deleted successfully", oldName)
 
 	log.Default.Donef("Successfully renamed provider '%s' to '%s' and rebound all associated workspaces", oldName, newName)
 	return nil

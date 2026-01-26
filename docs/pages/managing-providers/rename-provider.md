@@ -3,7 +3,7 @@ id: rename-provider
 title: Rename a Provider
 ---
 
-You can rename a provider using the `devpod provider rename` command. This is useful for organizing your providers and giving them more descriptive names.
+You can rename a provider using the `devpod provider rename` command. This is useful for organizing your providers and giving them more descriptive names. The rename operation works by cloning the existing provider with the new name, automatically rebinding all associated workspaces to use the new provider name, and then cleaning up the old provider.
 
 ## CLI
 
@@ -26,6 +26,15 @@ If you have a provider named `my-docker` and you want to rename it to `local-doc
 devpod provider rename my-docker local-docker
 ```
 
+## Behavior
+
+The rename operation performs the following steps:
+
+1.  Clones the existing provider with the new name
+2.  Automatically rebinds all workspaces associated with the old provider to use the new provider name
+3.  Cleans up the old provider after successful rebinding
+4.  If any workspace rebinding fails, the operation rolls back by reverting the workspace configurations and deleting the cloned provider
+
 ## GUI
 
 You can also rename a provider from the DevPod desktop application:
@@ -36,4 +45,4 @@ You can also rename a provider from the DevPod desktop application:
 4.  Change the name to your desired new name.
 5.  Click **Update Options** to save the changes.
 
-After renaming, DevPod will automatically update the provider's configuration.
+After renaming, DevPod will automatically update the provider's configuration and rebind associated workspaces.
