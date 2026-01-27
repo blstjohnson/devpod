@@ -41,7 +41,7 @@ Example:
 
 // Run executes the command
 func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
-	log.Default.Info("Renaming provider using clone and rebinding workspaces...")
+	log.Default.Info("renaming provider using clone and rebinding workspaces")
 
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
