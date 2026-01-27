@@ -26,7 +26,6 @@ import {
   useColorModeValue,
 } from "@chakra-ui/react"
 import { useQueryClient } from "@tanstack/react-query"
-import { AnimatePresence, motion } from "framer-motion"
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Controller,

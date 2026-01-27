@@ -105,13 +105,11 @@ function ProviderOptionsForm(props: TProviderOptionsFormProps) {
   const navigate = useNavigate()
   const handleSave: TConfigureOptionsFormProps["onSave"] = useCallback(
     async ({ providerID, config, newName }) => {
-      let finalProviderID = providerID
       // Configure first, then rename to prevent UI route inconsistencies
       ;(await client.providers.configure(providerID, config)).unwrap()
 
       if (newName && newName !== providerID) {
         ;(await client.providers.rename(providerID, newName)).unwrap()
-        finalProviderID = newName
       }
       await queryClient.invalidateQueries(QueryKeys.PROVIDERS)
       if (newName && newName !== providerID) {
@@ -182,7 +180,7 @@ function ConfigureOptionsForm({
   } = useOptions(providerID, provider, workspace, suggestedOptions, formMethods)
 
   const {
-    status,
+    status: configureStatus,
     error: configureError,
     mutate: configureProvider,
   } = useMutation<
@@ -382,10 +380,10 @@ function ConfigureOptionsForm({
                   <Button
                     type="submit"
                     variant="primary"
-                    isLoading={formMethods.formState.isSubmitting || status === "loading"}
+                    isLoading={formMethods.formState.isSubmitting || configureStatus === "loading"}
                     isDisabled={!formMethods.formState.isValid || isRefreshing}
                     rightIcon={
-                      status === "success" && !formMethods.formState.isDirty ? (
+                      configureStatus === "success" && !formMethods.formState.isDirty ? (
                         <CheckIcon />
                       ) : undefined
                     }
@@ -531,7 +529,7 @@ function useOptions(
     }
     // only rerun when suggestedOptions changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestedOptions])
+  }, [suggestedOptions, formMethods, refreshSubOptionsMutation])
 
   useEffect(() => {
     const workspaceOptions = workspace?.provider?.options
@@ -557,7 +555,7 @@ function useOptions(
     }
     // only rerun when workspace options change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.provider?.options])
+  }, [workspace?.provider?.options, formMethods, refreshSubOptionsMutation, setIsEditingWorkspaceOptions])
 
   const allOptions = useMemo(() => {
     if (refreshOptions) {
