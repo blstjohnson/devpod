@@ -117,15 +117,22 @@ func rollback(devPodConfig *config.Config, workspacesTouched []*provider.Workspa
 
 // Run executes the command
 func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
+
+	oldName := args[0]
+	newName := args[1]
+	if provider.ProviderNameRegEx.MatchString(newName) {
+		return fmt.Errorf("provider name can only include smaller case letters, numbers or dashes")
+	}
+	if len(newName) > 32 {
+		return fmt.Errorf("provider name cannot be longer than 32 characters")
+	}
+
 	log.Default.Info("renaming provider using clone and rebinding workspaces")
 
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
 		return err
 	}
-
-	oldName := args[0]
-	newName := args[1]
 
 	workspacesToRebind, err := getWorkspacesToRebind(devPodConfig, oldName)
 	if err != nil {

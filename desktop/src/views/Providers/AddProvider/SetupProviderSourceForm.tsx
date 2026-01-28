@@ -48,8 +48,7 @@ import { useCommunityContributions } from "../../../useCommunityContributions"
 import { LoadingProviderIndicator } from "./LoadingProviderIndicator"
 import { FieldName, TFormValues, TSetupProviderResult } from "./types"
 import { useAddProvider } from "./useAddProvider"
-
-const ALLOWED_NAMES_REGEX = /^[a-z0-9\\-]+$/
+import { PROVIDER_NAME_REGEX } from "../../../lib/validation"
 const DEFAULT_VAL_OPTS: SetValueConfig = {
   shouldDirty: true,
   shouldValidate: true,
@@ -375,7 +374,7 @@ export function SetupProviderSourceForm({
                     control={control}
                     rules={{
                       pattern: {
-                        value: ALLOWED_NAMES_REGEX,
+                        value: PROVIDER_NAME_REGEX,
                         message: "Name can only contain lowercase letters, numbers and hyphens",
                       },
                       validate: {
@@ -385,7 +384,7 @@ export function SetupProviderSourceForm({
                           return providers?.[value] === undefined ? true : "Name must be unique"
                         },
                       },
-                      maxLength: { value: 48, message: "Name cannot be longer than 48 characters" },
+                      maxLength: { value: 32, message: "Name cannot be longer than 32 characters" },
                     }}
                     render={({ field }) => (
                       <Input

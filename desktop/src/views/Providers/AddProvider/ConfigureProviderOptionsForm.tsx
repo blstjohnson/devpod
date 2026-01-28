@@ -33,7 +33,7 @@ import { DefaultValues, FormProvider, UseFormReturn, useForm } from "react-hook-
 import { useNavigate } from "react-router"
 import { useBorderColor } from "../../../Theme"
 import { client } from "../../../client"
-import { useProvider } from "../../../contexts"
+import { useProvider, useProviders } from "../../../contexts"
 import { exists, useFormErrors } from "../../../lib"
 import { QueryKeys } from "../../../queryKeys"
 import { Routes } from "../../../routes.constants"
@@ -48,6 +48,7 @@ import {
 import { canCreateMachine } from "../helpers"
 import { OptionFormField } from "./OptionFormField"
 import { useProviderDisplayOptions } from "./useProviderOptions"
+import { PROVIDER_NAME_REGEX } from "../../../lib/validation"
 
 const Form = styled.form`
   width: 100%;
@@ -103,20 +104,22 @@ type TProviderOptionsFormProps = TWithoutWorkspace
 function ProviderOptionsForm(props: TProviderOptionsFormProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [, { rename }] = useProviders()
+
   const handleSave: TConfigureOptionsFormProps["onSave"] = useCallback(
     async ({ providerID, config, newName }) => {
       // Configure first, then rename to prevent UI route inconsistencies
       ;(await client.providers.configure(providerID, config)).unwrap()
 
       if (newName && newName !== providerID) {
-        ;(await client.providers.rename(providerID, newName)).unwrap()
-      }
-      await queryClient.invalidateQueries(QueryKeys.PROVIDERS)
-      if (newName && newName !== providerID) {
+        await rename.run({ oldProviderID: providerID, newProviderID: newName })
+
         navigate(Routes.toProvider(newName), { replace: true })
+      } else {
+        await queryClient.invalidateQueries(QueryKeys.PROVIDERS)
       }
     },
-    [queryClient, navigate]
+    [queryClient, navigate, rename]
   )
 
   return <ConfigureOptionsForm {...props} onSave={handleSave} />
@@ -267,9 +270,23 @@ function ConfigureOptionsForm({
       <Form aria-readonly={true} onSubmit={handleSubmit}>
         <VStack align="start" width="full">
           <VStack align="start" spacing={8} position="relative" width="full">
-            <FormControl>
+            <FormControl isInvalid={!!formMethods.formState.errors[FieldName.NAME]}>
               <FormLabel>Provider Name</FormLabel>
-              <Input {...formMethods.register(FieldName.NAME)} />
+              <Input
+                {...formMethods.register(FieldName.NAME, {
+                  pattern: {
+                    value: PROVIDER_NAME_REGEX,
+                    message: "Name can only contain lowercase letters, numbers and hyphens",
+                  },
+                  maxLength: {
+                    value: 32,
+                    message: "Name cannot be longer than 32 characters",
+                  },
+                })}
+              />
+              <FormErrorMessage>
+                {formMethods.formState.errors[FieldName.NAME]?.message}
+              </FormErrorMessage>
             </FormControl>
             <Center
               opacity={isRefreshing ? "1" : "0"}
@@ -528,7 +545,7 @@ function useOptions(
       })
     }
     // only rerun when suggestedOptions changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [suggestedOptions, formMethods, refreshSubOptionsMutation])
 
   useEffect(() => {
@@ -554,8 +571,13 @@ function useOptions(
       refreshSubOptionsMutation({ options: changedOptions })
     }
     // only rerun when workspace options change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.provider?.options, formMethods, refreshSubOptionsMutation, setIsEditingWorkspaceOptions])
+     
+  }, [
+    workspace?.provider?.options,
+    formMethods,
+    refreshSubOptionsMutation,
+    setIsEditingWorkspaceOptions,
+  ])
 
   const allOptions = useMemo(() => {
     if (refreshOptions) {
