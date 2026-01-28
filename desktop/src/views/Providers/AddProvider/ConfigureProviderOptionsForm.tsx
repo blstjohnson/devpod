@@ -545,7 +545,6 @@ function useOptions(
       })
     }
     // only rerun when suggestedOptions changes
-     
   }, [suggestedOptions, formMethods, refreshSubOptionsMutation])
 
   useEffect(() => {
@@ -571,7 +570,6 @@ function useOptions(
       refreshSubOptionsMutation({ options: changedOptions })
     }
     // only rerun when workspace options change
-     
   }, [
     workspace?.provider?.options,
     formMethods,

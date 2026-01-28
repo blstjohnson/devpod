@@ -13,7 +13,9 @@ export function useProviderManager(): TProviderManager {
       (await client.providers.remove(providerID)).unwrap(),
     onMutate({ providerID }) {
       queryClient.cancelQueries(QueryKeys.PROVIDERS)
-      const oldProviderSnapshot = queryClient.getQueryData<TProviders>(QueryKeys.PROVIDERS)?.[providerID]
+      const oldProviderSnapshot = queryClient.getQueryData<TProviders>(QueryKeys.PROVIDERS)?.[
+        providerID
+      ]
 
       queryClient.setQueryData<TProviders>(QueryKeys.PROVIDERS, (current) => {
         const shallowCopy = { ...current }
@@ -39,8 +41,13 @@ export function useProviderManager(): TProviderManager {
   })
 
   const renameMutation = useMutation({
-    mutationFn: async ({ oldProviderID, newProviderID }: { oldProviderID: string, newProviderID: string }) =>
-      (await client.providers.rename(oldProviderID, newProviderID)).unwrap(),
+    mutationFn: async ({
+      oldProviderID,
+      newProviderID,
+    }: {
+      oldProviderID: string
+      newProviderID: string
+    }) => (await client.providers.rename(oldProviderID, newProviderID)).unwrap(),
     onMutate({ oldProviderID, newProviderID }) {
       queryClient.cancelQueries(QueryKeys.PROVIDERS)
       const oldProviders = queryClient.getQueryData<TProviders>(QueryKeys.PROVIDERS)
@@ -57,8 +64,8 @@ export function useProviderManager(): TProviderManager {
               ...shallowCopy[newProviderID],
               config: {
                 ...shallowCopy[newProviderID].config!,
-                name: newProviderID
-              }
+                name: newProviderID,
+              },
             }
           }
         }
