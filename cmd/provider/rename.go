@@ -166,6 +166,11 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 
 	log.Default.Infof("old provider %s deleted successfully", oldName)
 
+	_, err = workspace.FindProvider(devPodConfig, newName, log.Default)
+	if err != nil {
+		return fmt.Errorf("failed to load renamed provider %s: %w", newName, err)
+	}
+
 	log.Default.Donef("successfully renamed provider '%s' to '%s' and rebound all associated workspaces", oldName, newName)
 	return nil
 }
