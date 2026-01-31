@@ -53,11 +53,7 @@ func getWorkspacesToRebind(devPodConfig *config.Config, name string) ([]*provide
 	}
 
 	if len(workspacesToRebind) > 0 {
-		log.Default.Infof("found %d workspace(s) that will be rebound from provider '%s'",
-			len(workspacesToRebind), name)
-		for _, ws := range workspacesToRebind {
-			log.Default.Infof("- workspace: %s", ws.ID)
-		}
+		log.Default.Infof("rebinding %d workspace(s) from provider '%s'", len(workspacesToRebind), name)
 	} else {
 		log.Default.Info("no workspaces found that are bound to this provider")
 	}
@@ -91,17 +87,17 @@ func adjustDefaultProvider(devPodConfig *config.Config, oldName string, newName 
 		devPodConfig.Current().DefaultProvider = newName
 		err := config.SaveConfig(devPodConfig)
 		if err != nil {
-			log.Default.Errorf("failed to update default provider to '%s': %v", newName, err)
+			log.Default.Errorf("failed to update default provider to %s: %v", newName, err)
 			return err
 		} else {
-			log.Default.Infof("updated default provider from '%s' to '%s'", oldName, newName)
+			log.Default.Infof("updated default provider from %s to %s", oldName, newName)
 		}
 	}
 	return nil
 }
 
 func rollback(devPodConfig *config.Config, workspacesTouched []*provider.Workspace, oldName string, newName string) error {
-	log.Default.Info("rolling back changes...")
+	log.Default.Info("rolling back changes")
 	var _, err = rebindWorkspaces(workspacesTouched, oldName)
 	if err != nil {
 		return err
@@ -144,7 +140,7 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to clone provider: %w", cloneErr)
 	}
 
-	log.Default.Infof("provider successfully cloned from '%s' to '%s'", oldName, newName)
+	log.Default.Infof("provider successfully cloned from %s to %s", oldName, newName)
 
 	successfulRebinds, renameErr := rebindWorkspaces(workspacesToRebind, newName)
 
@@ -153,7 +149,7 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 	}
 
 	if renameErr != nil {
-		log.Default.Errorf("failed to rename provider '%s' to '%s': %v", oldName, newName, renameErr)
+		log.Default.Errorf("failed to rename provider %s to %s: %v", oldName, newName, renameErr)
 		err = rollback(devPodConfig, successfulRebinds, oldName, newName)
 		return errors.Join(renameErr, err)
 	}
@@ -171,6 +167,6 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load renamed provider %s: %w", newName, err)
 	}
 
-	log.Default.Donef("successfully renamed provider '%s' to '%s' and rebound all associated workspaces", oldName, newName)
+	log.Default.Donef("successfully renamed provider %s to %s and rebound all associated workspaces", oldName, newName)
 	return nil
 }
