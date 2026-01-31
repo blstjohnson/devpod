@@ -388,7 +388,11 @@ func (f *Framework) DevPodIDEList(ctx context.Context, extraArgs ...string) (str
 	return f.ExecCommandOutput(ctx, append(baseArgs, extraArgs...))
 }
 
-func (f *Framework) DevPodWorkspaceRebind(ctx context.Context, workspaceName, newProvider string, extraArgs ...string) error {
+func (f *Framework) DevPodWorkspaceRebind(
+	ctx context.Context,
+	workspaceName,
+	newProvider string,
+	extraArgs ...string) error {
 	args := []string{"workspace", "rebind", workspaceName, newProvider}
 	args = append(args, extraArgs...)
 	_, _, err := f.ExecCommandCapture(ctx, args)
