@@ -27,10 +27,6 @@ func (r *runner) Build(ctx context.Context, options provider.BuildOptions) (stri
 
 	prebuildRepo := getPrebuildRepository(substitutedConfig)
 
-	if !options.SkipPush && options.Repository == "" && prebuildRepo == "" {
-		return "", fmt.Errorf("repository needs to be specified")
-	}
-
 	// remove build information
 	defer func() {
 		contextPath := config.GetContextPath(substitutedConfig.Config)
@@ -73,6 +69,11 @@ func (r *runner) Build(ctx context.Context, options provider.BuildOptions) (stri
 		if err := dockerDriver.TagDevContainer(ctx, buildInfo.ImageName, prebuildImage); err != nil {
 			return "", fmt.Errorf("tag image %w", err)
 		}
+	}
+
+	// if no repository is specified, skip push (mirrors devcontainer CLI behavior)
+	if options.Repository == "" && prebuildRepo == "" {
+		return prebuildImage, nil
 	}
 
 	// check if we can push image
