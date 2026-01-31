@@ -1,13 +1,14 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/provider"
-	"github.com/skevetter/devpod/pkg/workspace"
+	workspace "github.com/skevetter/devpod/pkg/workspace"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
@@ -62,15 +63,14 @@ func getWorkspacesToRebind(devPodConfig *config.Config, name string) ([]*provide
 }
 
 // rebindWorkspaces updates the provider name for the given workspaces and saves the configurations
-func rebindWorkspaces(workspacesToRebind []*provider.Workspace, newName string) ([]*provider.Workspace, error) {
+func rebindWorkspaces(devPodConfig *config.Config, workspacesToRebind []*provider.Workspace, newName string) ([]*provider.Workspace, error) {
 	var aggregateError error
 	var successfulRebinds []*provider.Workspace
 
 	for _, ws := range workspacesToRebind {
 		log.Default.Infof("rebinding workspace %s to provider %s", ws.ID, newName)
-		ws.Provider.Name = newName
 
-		err := provider.SaveWorkspaceConfig(ws)
+		err := workspace.SwitchProvider(context.Background(), devPodConfig, ws, newName)
 		if err != nil {
 			log.Default.Errorf("failed to rebind workspace %s: %v", ws.ID, err)
 			aggregateError = errors.Join(aggregateError, err)
@@ -98,7 +98,7 @@ func adjustDefaultProvider(devPodConfig *config.Config, oldName string, newName 
 
 func rollback(devPodConfig *config.Config, workspacesTouched []*provider.Workspace, oldName string, newName string) error {
 	log.Default.Info("rolling back changes")
-	var _, err = rebindWorkspaces(workspacesTouched, oldName)
+	var _, err = rebindWorkspaces(devPodConfig, workspacesTouched, oldName)
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 
 	log.Default.Infof("provider successfully cloned from %s to %s", oldName, newName)
 
-	successfulRebinds, renameErr := rebindWorkspaces(workspacesToRebind, newName)
+	successfulRebinds, renameErr := rebindWorkspaces(devPodConfig, workspacesToRebind, newName)
 
 	if renameErr == nil {
 		renameErr = adjustDefaultProvider(devPodConfig, oldName, newName)
