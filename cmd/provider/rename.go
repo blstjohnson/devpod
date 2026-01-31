@@ -117,7 +117,7 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 	oldName := args[0]
 	newName := args[1]
 	if provider.ProviderNameRegEx.MatchString(newName) {
-		return fmt.Errorf("provider name can only include smaller case letters, numbers or dashes")
+		return fmt.Errorf("provider name can only include lowercase letters, numbers or dashes")
 	}
 	if len(newName) > 32 {
 		return fmt.Errorf("provider name cannot be longer than 32 characters")

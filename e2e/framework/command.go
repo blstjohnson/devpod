@@ -395,6 +395,9 @@ func (f *Framework) DevPodWorkspaceRebind(
 	extraArgs ...string) error {
 	args := []string{"workspace", "rebind", workspaceName, newProvider}
 	args = append(args, extraArgs...)
-	_, _, err := f.ExecCommandCapture(ctx, args)
-	return err
+	_, stderr, err := f.ExecCommandCapture(ctx, args)
+	if err != nil {
+		return fmt.Errorf("devpod workspace rebind failed: %s", stderr)
+	}
+	return nil
 }

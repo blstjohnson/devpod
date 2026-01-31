@@ -423,41 +423,32 @@ func ProviderFromHost(ctx context.Context, devPodConfig *config.Config, proHost 
 
 // SwitchProvider updates the provider name for the given workspace with client locking and state checking
 func SwitchProvider(ctx context.Context, devPodConfig *config.Config, workspace *providerpkg.Workspace, newProviderName string) error {
-	// Get workspace client to check status and lock
 	client, err := Get(ctx, devPodConfig, []string{workspace.ID}, false, platform.AllOwnerFilter, false, log.Default)
 	if err != nil {
 		return fmt.Errorf("failed to get client for workspace %s: %w", workspace.ID, err)
 	}
 
-	// Check workspace status to ensure it's not running or changing
 	status, err := client.Status(ctx, client2.StatusOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
 	}
 
-	// Only allow switching if workspace is stopped
 	if status != client2.StatusStopped && status != client2.StatusNotFound {
 		return fmt.Errorf("workspace %s is in state %s and cannot be switched. Only stopped or non-existent workspaces can be switched", workspace.ID, status)
 	}
 
-	// Lock the workspace before switching provider
 	err = client.Lock(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to lock workspace %s: %w", workspace.ID, err)
 	}
+	defer client.Unlock()
 
-	// Update the provider name in the workspace configuration
 	workspace.Provider.Name = newProviderName
 
-	// Save the updated configuration
 	err = providerpkg.SaveWorkspaceConfig(workspace)
 	if err != nil {
-		client.Unlock() // Unlock before returning error
 		return fmt.Errorf("failed to save workspace config: %w", err)
 	}
-
-	// Unlock after successful save
-	client.Unlock()
 
 	return nil
 }
