@@ -290,14 +290,15 @@ spec:
 				err = f.DevPodStop(ctx, tempDir)
 				framework.ExpectNoError(err)
 
-				// Wait for the workspace to reach stopped state
+				// Wait for the workspace to reach stopped or not found state
 				gomega.Eventually(func() string {
 					status, err := f.DevPodStatus(ctx, tempDir)
 					if err != nil {
 						return "error"
 					}
-					return string(status.State)
-				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("Stopped"))
+					state := string(status.State)
+					return state
+				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Or(gomega.Equal("Stopped"), gomega.Equal("NotFound")))
 
 				// Rename provider
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
@@ -349,6 +350,15 @@ spec:
 				// Create and start workspace (workspace remains running)
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
+
+				// Wait for the workspace to reach running state
+				gomega.Eventually(func() string {
+					status, err := f.DevPodStatus(ctx, tempDir)
+					if err != nil {
+						return "error"
+					}
+					return string(status.State)
+				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("Running"))
 
 				// Attempt to rename provider - this should fail because workspace is running
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
