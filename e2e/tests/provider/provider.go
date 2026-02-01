@@ -172,7 +172,7 @@ spec:
 				panic(err)
 			}
 
-			// RENAME-1
+			// RENAME-1.
 			ginkgo.It("should rename a provider to a new, valid name", func() {
 				tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 				framework.ExpectNoError(err)
@@ -180,36 +180,36 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-				// Ensure that provider is deleted
+				// Ensure that provider is deleted.
 				err = f.DevPodProviderDelete(ctx, "provider-rename", "--ignore-not-found")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, "provider-renamed", "--ignore-not-found")
 				framework.ExpectNoError(err)
 
-				// Add provider
+				// Add provider.
 				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", "provider-rename")
 				framework.ExpectNoError(err)
 
-				// Ensure provider exists
+				// Ensure provider exists.
 				err = f.DevPodProviderUse(context.Background(), "provider-rename")
 				framework.ExpectNoError(err)
 
-				// Rename provider
+				// Rename provider.
 				err = f.DevPodProviderRename(context.Background(), "provider-rename", "provider-renamed")
 				framework.ExpectNoError(err)
 
-				// Ensure old provider is gone and new one exists
+				// Ensure old provider is gone and new one exists.
 				err = f.DevPodProviderUse(context.Background(), "provider-rename")
 				framework.ExpectError(err)
 				err = f.DevPodProviderUse(context.Background(), "provider-renamed")
 				framework.ExpectNoError(err)
 
-				// Cleanup: delete provider
+				// Cleanup: delete provider.
 				err = f.DevPodProviderDelete(ctx, "provider-renamed")
 				framework.ExpectNoError(err)
 			})
 
-			// RENAME-2
+			// RENAME-2.
 			ginkgo.It("should fail to rename a provider to a name that already exists", func() {
 				tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 				framework.ExpectNoError(err)
@@ -217,49 +217,49 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-				// Ensure that providers are deleted
+				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, "provider-to-rename", "--ignore-not-found")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, "existing-provider", "--ignore-not-found")
 				framework.ExpectNoError(err)
 
-				// Add providers
+				// Add providers.
 				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", "provider-to-rename")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderAdd(ctx, tempDir+"/provider2.yaml", "--name", "existing-provider")
 				framework.ExpectNoError(err)
 
-				// Attempt to rename provider to an existing name
+				// Attempt to rename provider to an existing name.
 				err = f.DevPodProviderRename(context.Background(), "provider-to-rename", "existing-provider")
 				framework.ExpectError(err)
 
-				// Ensure providers still exist
+				// Ensure providers still exist.
 				err = f.DevPodProviderUse(context.Background(), "provider-to-rename")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderUse(context.Background(), "existing-provider")
 				framework.ExpectNoError(err)
 
-				// Cleanup: delete providers
+				// Cleanup: delete providers.
 				err = f.DevPodProviderDelete(ctx, "provider-to-rename")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, "existing-provider")
 				framework.ExpectNoError(err)
 			})
 
-			// RENAME-3
+			// RENAME-3.
 			ginkgo.It("should fail to rename a non-existent provider", func() {
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-				// Ensure that provider is deleted
+				// Ensure that provider is deleted.
 				err = f.DevPodProviderDelete(ctx, "non-existent-provider", "--ignore-not-found")
 				framework.ExpectNoError(err)
 
-				// Attempt to rename non-existent provider
+				// Attempt to rename non-existent provider.
 				err = f.DevPodProviderRename(context.Background(), "non-existent-provider", "new-name")
 				framework.ExpectError(err)
 			})
 
-			// RENAME-4
+			// RENAME-4.
 			ginkgo.It("should rename a provider with an associated stopped workspace", func() {
 				tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
 				framework.ExpectNoError(err)
@@ -270,27 +270,27 @@ spec:
 				providerName := "provider-with-workspace"
 				renamedProviderName := "renamed-provider-with-workspace"
 
-				// Ensure that providers are deleted
+				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, renamedProviderName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 
-				// Add and use provider
+				// Add and use provider.
 				err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
 
-				// Create and start workspace
+				// Create and start workspace.
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
 
-				// Stop the workspace before renaming (running workspaces cannot be switched)
+				// Stop the workspace before renaming (running workspaces cannot be switched).
 				err = f.DevPodStop(ctx, tempDir)
 				framework.ExpectNoError(err)
 
-				// Wait for the workspace to reach stopped or not found state
+				// Wait for the workspace to reach stopped or not found state.
 				gomega.Eventually(func() string {
 					status, err := f.DevPodStatus(ctx, tempDir)
 					if err != nil {
@@ -298,33 +298,39 @@ spec:
 					}
 					state := string(status.State)
 					return state
-				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Or(gomega.Equal("Stopped"), gomega.Equal("NotFound")))
+				}).WithTimeout(30 * time.Second).
+					WithPolling(1 * time.Second).
+					Should(gomega.Or(gomega.Equal("Stopped"), gomega.Equal("NotFound")))
 
-				// Rename provider
+				// Additional wait to ensure the workspace is fully settled in stopped state.
+				// This helps avoid race conditions where the status changes between the check and rebind operation.
+				time.Sleep(2 * time.Second)
+
+				// Rename provider.
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
 				framework.ExpectNoError(err)
 
-				// Verify that the old provider is gone and the new one exists
+				// Verify that the old provider is gone and the new one exists.
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectError(err)
 				err = f.DevPodProviderUse(ctx, renamedProviderName)
 				framework.ExpectNoError(err)
 
-				// Start the workspace with the new provider and verify it's accessible
+				// Start the workspace with the new provider and verify it's accessible.
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
 
 				_, err = f.DevPodSSH(ctx, tempDir, "echo 'hello'")
 				framework.ExpectNoError(err)
 
-				// Cleanup
+				// Cleanup.
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, renamedProviderName)
 				framework.ExpectNoError(err)
 			})
 
-			// RENAME-5
+			// RENAME-5.
 			ginkgo.It("should fail to rename a provider with a running workspace", func() {
 				tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
 				framework.ExpectNoError(err)
@@ -335,51 +341,53 @@ spec:
 				providerName := "provider-with-running-workspace"
 				renamedProviderName := "renamed-provider-with-running-workspace"
 
-				// Ensure that providers are deleted
+				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, renamedProviderName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 
-				// Add and use provider
+				// Add and use provider.
 				err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
 
-				// Create and start workspace (workspace remains running)
+				// Create and start workspace (workspace remains running).
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
 
-				// Wait for the workspace to reach running state
+				// Wait for the workspace to reach running state.
 				gomega.Eventually(func() string {
 					status, err := f.DevPodStatus(ctx, tempDir)
 					if err != nil {
 						return "error"
 					}
 					return string(status.State)
-				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("Running"))
+				}).WithTimeout(30 * time.Second).
+					WithPolling(1 * time.Second).
+					Should(gomega.Equal("Running"))
 
-				// Attempt to rename provider - this should fail because workspace is running
+				// Attempt to rename provider - this should fail because workspace is running.
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
 				framework.ExpectError(err)
 				gomega.Expect(err.Error()).To(gomega.ContainSubstring("cannot be switched"))
 				gomega.Expect(err.Error()).To(gomega.ContainSubstring("Running"))
 
-				// Verify that the old provider still exists and the new one doesn't
+				// Verify that the old provider still exists and the new one doesn't.
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderUse(ctx, renamedProviderName)
 				framework.ExpectError(err)
 
-				// Cleanup
+				// Cleanup.
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, providerName)
 				framework.ExpectNoError(err)
 			})
 
-			// RENAME-6 (was RENAME-5)
+			// RENAME-6 (was RENAME-5).
 			ginkgo.It("should fail to rename a provider to an invalid name", func() {
 				tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 				framework.ExpectNoError(err)
@@ -389,23 +397,23 @@ spec:
 
 				providerName := "provider-to-rename-invalid"
 
-				// Ensure that provider is deleted
+				// Ensure that provider is deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 
-				// Add provider
+				// Add provider.
 				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", providerName)
 				framework.ExpectNoError(err)
 
-				// Attempt to rename provider to an invalid name
+				// Attempt to rename provider to an invalid name.
 				err = f.DevPodProviderRename(context.Background(), providerName, "invalid/name")
 				framework.ExpectError(err)
 
-				// Ensure provider still exists
+				// Ensure provider still exists.
 				err = f.DevPodProviderUse(context.Background(), providerName)
 				framework.ExpectNoError(err)
 
-				// Cleanup: delete provider
+				// Cleanup: delete provider.
 				err = f.DevPodProviderDelete(ctx, providerName)
 				framework.ExpectNoError(err)
 			})

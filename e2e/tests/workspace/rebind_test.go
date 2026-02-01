@@ -29,34 +29,30 @@ var _ = ginkgo.Describe("[workspace] devpod workspace rebind", ginkgo.Label("reb
 		provider1Name := "provider1-for-rebind"
 		provider2Name := "provider2-for-rebind"
 
-		// Ensure that providers are deleted
+		// Ensure that providers are deleted.
 		err = f.DevPodProviderDelete(ctx, provider1Name, "--ignore-not-found")
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderDelete(ctx, provider2Name, "--ignore-not-found")
 		framework.ExpectNoError(err)
 
-		// Add and use first provider
+		// Add and use first provider.
 		err = f.DevPodProviderAdd(ctx, "docker", "--name", provider1Name)
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderUse(ctx, provider1Name)
 		framework.ExpectNoError(err)
 
-		// Add second provider
+		// Add second provider.
 		err = f.DevPodProviderAdd(ctx, "docker", "--name", provider2Name)
 		framework.ExpectNoError(err)
 
-		// Create workspace
+		// Create workspace.
 		err = f.DevPodUp(ctx, tempDir)
 		framework.ExpectNoError(err)
 
-		// Normalize workspace ID using same method as DevPod internals
+		// Normalize workspace ID using same method as DevPod internals.
 		workspaceID := workspace.ToID(filepath.Base(tempDir))
 
-		// Stop the workspace before rebinding (required by the enhanced functionality)
-		err = f.DevPodStop(ctx, workspaceID)
-		framework.ExpectNoError(err)
-
-		// Wait for the workspace to reach stopped or not found state
+		// Wait for the workspace to reach running state.
 		gomega.Eventually(func() string {
 			status, err := f.DevPodStatus(ctx, workspaceID)
 			if err != nil {
@@ -64,24 +60,42 @@ var _ = ginkgo.Describe("[workspace] devpod workspace rebind", ginkgo.Label("reb
 			}
 			state := string(status.State)
 			return state
-		}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Or(gomega.Equal("Stopped"), gomega.Equal("NotFound")))
+		}).WithTimeout(30 * time.Second).
+			WithPolling(1 * time.Second).
+			Should(gomega.Equal("Running"))
+
+		// Stop the workspace before rebinding (required by the enhanced functionality).
+		err = f.DevPodStop(ctx, workspaceID)
+		framework.ExpectNoError(err)
+
+		// Wait for the workspace to reach stopped or not found state.
+		gomega.Eventually(func() string {
+			status, err := f.DevPodStatus(ctx, workspaceID)
+			if err != nil {
+				return "error"
+			}
+			state := string(status.State)
+			return state
+		}).WithTimeout(30 * time.Second).
+			WithPolling(1 * time.Second).
+			Should(gomega.Or(gomega.Equal("Stopped"), gomega.Equal("NotFound")))
 
 		err = f.DevPodWorkspaceRebind(ctx, workspaceID, provider2Name)
 		framework.ExpectNoError(err)
 
-		// Verify that the workspace is now associated with the second provider
-		// We can do this by trying to access it after switching to the second provider
+		// Verify that the workspace is now associated with the second provider.
+		// We can do this by trying to access it after switching to the second provider.
 		err = f.DevPodProviderUse(ctx, provider2Name)
 		framework.ExpectNoError(err)
 
-		// Start the workspace with the new provider and test it
+		// Start the workspace with the new provider and test it.
 		err = f.DevPodUp(ctx, tempDir)
 		framework.ExpectNoError(err)
 
 		_, err = f.DevPodSSH(ctx, workspaceID, "echo 'hello'")
 		framework.ExpectNoError(err)
 
-		// Cleanup
+		// Cleanup.
 		err = f.DevPodWorkspaceDelete(ctx, tempDir)
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderDelete(ctx, provider1Name)
@@ -100,34 +114,34 @@ var _ = ginkgo.Describe("[workspace] devpod workspace rebind", ginkgo.Label("reb
 		provider1Name := "provider1-running-test"
 		provider2Name := "provider2-running-test"
 
-		// Ensure that providers are deleted
+		// Ensure that providers are deleted.
 		err = f.DevPodProviderDelete(ctx, provider1Name, "--ignore-not-found")
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderDelete(ctx, provider2Name, "--ignore-not-found")
 		framework.ExpectNoError(err)
 
-		// Add and use first provider
+		// Add and use first provider.
 		err = f.DevPodProviderAdd(ctx, "docker", "--name", provider1Name)
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderUse(ctx, provider1Name)
 		framework.ExpectNoError(err)
 
-		// Add second provider
+		// Add second provider.
 		err = f.DevPodProviderAdd(ctx, "docker", "--name", provider2Name)
 		framework.ExpectNoError(err)
 
-		// Create and start workspace
+		// Create and start workspace.
 		err = f.DevPodUp(ctx, tempDir)
 		framework.ExpectNoError(err)
 
-		// Normalize workspace ID using same method as DevPod internals
+		// Normalize workspace ID using same method as DevPod internals.
 		workspaceID := workspace.ToID(filepath.Base(tempDir))
 
-		// Try to rebind the running workspace - this should fail with the new implementation
+		// Try to rebind the running workspace - this should fail with the new implementation.
 		err = f.DevPodWorkspaceRebind(ctx, workspaceID, provider2Name)
 		framework.ExpectError(err)
 
-		// Cleanup
+		// Cleanup.
 		err = f.DevPodWorkspaceDelete(ctx, tempDir)
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderDelete(ctx, provider1Name)
