@@ -155,7 +155,7 @@ func cloneAndRebindProvider(
 	return successfulRebinds, renameErr
 }
 
-// cleanupOldProvider deletes the old provider after successful rename
+// cleanupOldProvider deletes the old provider after successful rename.
 func cleanupOldProvider(devPodConfig *config.Config, oldName, newName string) error {
 	deleteErr := DeleteProviderConfig(devPodConfig, oldName, true)
 	if deleteErr != nil {
@@ -173,7 +173,7 @@ func cleanupOldProvider(devPodConfig *config.Config, oldName, newName string) er
 	return nil
 }
 
-// Run executes the command
+// Run executes the command.
 func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 	oldName := args[0]
 	newName := args[1]

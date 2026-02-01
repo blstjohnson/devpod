@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	"github.com/skevetter/devpod/e2e/framework"
 	"github.com/skevetter/devpod/pkg/workspace"
 )
@@ -53,6 +55,15 @@ var _ = ginkgo.Describe("[workspace] devpod workspace rebind", ginkgo.Label("reb
 		// Stop the workspace before rebinding (required by the enhanced functionality)
 		err = f.DevPodStop(ctx, workspaceID)
 		framework.ExpectNoError(err)
+
+		// Wait for the workspace to reach stopped state
+		gomega.Eventually(func() string {
+			status, err := f.DevPodStatus(ctx, workspaceID)
+			if err != nil {
+				return "error"
+			}
+			return string(status.State)
+		}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("stopped"))
 
 		err = f.DevPodWorkspaceRebind(ctx, workspaceID, provider2Name)
 		framework.ExpectNoError(err)

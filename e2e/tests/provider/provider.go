@@ -290,6 +290,15 @@ spec:
 				err = f.DevPodStop(ctx, tempDir)
 				framework.ExpectNoError(err)
 
+				// Wait for the workspace to reach stopped state
+				gomega.Eventually(func() string {
+					status, err := f.DevPodStatus(ctx, tempDir)
+					if err != nil {
+						return "error"
+					}
+					return string(status.State)
+				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("stopped"))
+
 				// Rename provider
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
 				framework.ExpectNoError(err)

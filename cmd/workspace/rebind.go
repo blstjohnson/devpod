@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// RebindCmd holds the cmd flags
+// RebindCmd holds the cmd flags.
 type RebindCmd struct {
 	*flags.GlobalFlags
 }
 
-// NewRebindCmd creates a new command
+// NewRebindCmd creates a new command.
 func NewRebindCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &RebindCmd{
 		GlobalFlags: globalFlags,
@@ -33,7 +33,7 @@ func NewRebindCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	}
 }
 
-// Run executes the command
+// Run executes the command.
 func (cmd *RebindCmd) Run(args []string) error {
 	workspaceName := args[0]
 	newProviderName := args[1]
