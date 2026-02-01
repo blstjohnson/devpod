@@ -421,7 +421,7 @@ func ProviderFromHost(ctx context.Context, devPodConfig *config.Config, proHost 
 	return provider.Config, nil
 }
 
-// SwitchProvider updates the provider name for the given workspace with client locking and state checking
+// SwitchProvider updates the provider name for the given workspace with client locking and state checking.
 func SwitchProvider(
 	ctx context.Context,
 	devPodConfig *config.Config,

@@ -297,7 +297,7 @@ spec:
 						return "error"
 					}
 					return string(status.State)
-				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("stopped"))
+				}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("Stopped"))
 
 				// Rename provider
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)

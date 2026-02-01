@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("[workspace] devpod workspace rebind", ginkgo.Label("reb
 				return "error"
 			}
 			return string(status.State)
-		}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("stopped"))
+		}).WithTimeout(30 * time.Second).WithPolling(1 * time.Second).Should(gomega.Equal("Stopped"))
 
 		err = f.DevPodWorkspaceRebind(ctx, workspaceID, provider2Name)
 		framework.ExpectNoError(err)
