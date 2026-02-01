@@ -233,23 +233,52 @@ type CLIOptions struct {
 	GidMap                      []string          `json:"gidMap,omitempty"`
 
 	// build options
-	Repository string   `json:"repository,omitempty"`
-	SkipPush   bool     `json:"skipPush,omitempty"`
-	Platforms  []string `json:"platform,omitempty"`
-	Tag        []string `json:"tag,omitempty"`
+	// Repository specifies the container registry repository to push the built image to (e.g., ghcr.io/user/image).
+	// When set, the image will be tagged and pushed to this repository after building.
+	Repository string `json:"repository,omitempty"`
+	// SkipPush prevents pushing the built image to the repository. Useful for testing builds
+	// without affecting the registry. When true, the image is only built and loaded locally.
+	SkipPush bool `json:"skipPush,omitempty"`
+	// PushDuringBuild pushes the image directly to the registry during the build process,
+	// skipping the load-to-daemon step. This is an optimization for CI/CD workflows. When true,
+	// the build uses BuildKit's direct push capability (--push flag) instead of the default
+	// load behavior (--load flag). Requires Repository to be set and cannot be
+	// used with SkipPush.
+	PushDuringBuild bool `json:"pushDuringBuild,omitempty"`
+	// Platforms specifies the target platforms for multi-architecture builds (e.g., linux/amd64,linux/arm64).
+	Platforms []string `json:"platform,omitempty"`
+	// Tag specifies additional image tags to apply to the built image beyond the default prebuild hash tag.
+	Tag []string `json:"tag,omitempty"`
 
-	ForceBuild            bool `json:"forceBuild,omitempty"`
-	ForceDockerless       bool `json:"forceDockerless,omitempty"`
+	// ForceBuild forces a rebuild even if a cached image exists.
+	ForceBuild bool `json:"forceBuild,omitempty"`
+	// ForceDockerless forces the use of a dockerless build approach.
+	ForceDockerless bool `json:"forceDockerless,omitempty"`
+	// ForceInternalBuildKit forces the use of internal BuildKit instead of docker buildx.
 	ForceInternalBuildKit bool `json:"forceInternalBuildKit,omitempty"`
 }
 
+// BuildOptions extends CLIOptions with additional build-specific configuration.
 type BuildOptions struct {
 	CLIOptions
 
-	Platform      string
+	// Platform specifies the target platform for the build (e.g., linux/amd64).
+	Platform string
+	// RegistryCache specifies a registry location to use for build cache storage and retrieval.
+	// When set, BuildKit will use type=registry cache with this reference.
 	RegistryCache string
-	ExportCache   bool
-	NoBuild       bool
+	// ExportCache controls whether to export the build cache to the registry.
+	// Only applies when RegistryCache is set.
+	ExportCache bool
+	// NoBuild prevents building the container image. When true, the command will fail if the image
+	// does not already exist. Used to enforce that images must be pre-built.
+	NoBuild bool
+	// PushDuringBuild enables pushing the image directly to the registry during the build process,
+	// bypassing the load-to-daemon step. This improves build performance in CI/CD
+	// environments by avoiding the tar export/import overhead. When enabled, the image is pushed
+	// directly from BuildKit to the registry without being loaded into the local Docker daemon.
+	// This requires a repository to be specified and is mutually exclusive with SkipPush.
+	PushDuringBuild bool
 }
 
 func (w WorkspaceSource) String() string {

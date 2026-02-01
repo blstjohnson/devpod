@@ -1,49 +1,44 @@
 package hash
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 
 	"github.com/docker/docker/pkg/longpath"
 	"github.com/moby/patternmatcher"
-	"github.com/pkg/errors"
+	"golang.org/x/mod/sumdb/dirhash"
 )
 
+const maxFilesToRead = 5000
+
 var (
-	maxFilesToRead       = 5000
 	errFileReadOverLimit = errors.New("read files over limit")
 )
 
+// DirectoryHash computes a hash of the directory contents using the standard dirhash.Hash1 algorithm.
+// It supports filtering via exclude patterns (.dockerignore) and include filters (specific subdirectories).
+// It processes up to maxFilesToRead files. If this limit is exceeded, it returns
+// a warning error along with a partial hash computed from the first 5000 files.
+//
+// The hash format is "h1:" followed by base64-encoded SHA-256, compatible with go.sum format.
+//
+// Parameters:
+//   - srcPath: The directory path to hash
+//   - excludePatterns: Patterns to exclude from hashing (e.g., .dockerignore patterns)
+//   - includeFiles: Specific files to include in the hash
+//
+// Returns:
+//   - hash: "h1:" format hash of the directory contents (may be partial if limit exceeded)
+//   - error: nil on success, warning error if file limit exceeded, or actual error on failure
 func DirectoryHash(srcPath string, excludePatterns, includeFiles []string) (string, error) {
-	srcPath, err := filepath.Abs(srcPath)
+	srcPath, err := validateAndPreparePath(srcPath)
 	if err != nil {
 		return "", err
-	}
-
-	// Stat dir / file
-	hash := sha256.New()
-	fileInfo, err := os.Stat(srcPath)
-	if err != nil {
-		return "", err
-	}
-
-	// Hash file
-	if !fileInfo.IsDir() {
-		return "", nil
-	}
-
-	// Fix the source path to work with long path names. This is a no-op
-	// on platforms other than Windows.
-	if runtime.GOOS == "windows" {
-		srcPath = longpath.AddPrefix(srcPath)
 	}
 
 	pm, err := patternmatcher.New(excludePatterns)
@@ -51,161 +46,195 @@ func DirectoryHash(srcPath string, excludePatterns, includeFiles []string) (stri
 		return "", err
 	}
 
-	// In general we log errors here but ignore them because
-	// during e.g. a diff operation the container can continue
-	// mutating the filesystem and we can see transient errors
-	// from this
-	stat, err := os.Lstat(srcPath)
+	files, err := collectFiles(srcPath, pm, includeFiles)
+	if err != nil && !errors.Is(err, errFileReadOverLimit) {
+		return "", err
+	}
+
+	// Use dirhash.Hash1 for standard hashing
+	hash, hashErr := dirhash.Hash1(files, func(name string) (io.ReadCloser, error) {
+		// #nosec G304 - file path is constructed from validated srcPath and filtered file list
+		return os.Open(filepath.Join(srcPath, filepath.FromSlash(name)))
+	})
+
+	if hashErr != nil {
+		return "", hashErr
+	}
+
+	// If file limit was exceeded, return hash with warning
+	if err != nil {
+		return hash, err
+	}
+
+	return hash, nil
+}
+
+func validateAndPreparePath(srcPath string) (string, error) {
+	srcPath, err := filepath.Abs(srcPath)
 	if err != nil {
 		return "", err
 	}
 
-	if !stat.IsDir() {
-		return "", errors.Errorf("Path %s is not a directory", srcPath)
+	srcPath, err = filepath.EvalSymlinks(srcPath)
+	if err != nil {
+		return "", err
 	}
 
-	include := "."
-	seen := make(map[string]bool)
-
-	retFiles := []string{}
-	walkRoot := filepath.Join(srcPath, include)
-	err = filepath.Walk(walkRoot, func(filePath string, f os.FileInfo, err error) error {
-		if err != nil {
-			return errors.Errorf("Hash: Can't stat file %s to hash: %s", srcPath, err)
-		}
-
-		if len(retFiles) >= maxFilesToRead {
-			return errFileReadOverLimit
-		}
-
-		relFilePath, err := filepath.Rel(srcPath, filePath)
-		if err != nil {
-			// Error getting relative path OR we are looking
-			// at the source directory path. Skip in both situations.
-			return err
-		}
-		relFilePath = filepath.ToSlash(relFilePath)
-
-		// Ensure file affects build context
-		include := false
-		for _, f := range includeFiles {
-			if strings.HasPrefix(relFilePath, f) {
-				include = true
-			}
-		}
-		if !include {
-			return nil
-		}
-
-		skip := false
-
-		// If "include" is an exact match for the current file
-		// then even if there's an "excludePatterns" pattern that
-		// matches it, don't skip it. IOW, assume an explicit 'include'
-		// is asking for that file no matter what - which is true
-		// for some files, like .dockerignore and Dockerfile (sometimes)
-		if relFilePath != "." {
-			skip, err = pm.MatchesOrParentMatches(relFilePath)
-			if err != nil {
-				return errors.Errorf("Error matching %s: %v", relFilePath, err)
-			}
-		}
-
-		if skip {
-			// If we want to skip this file and its a directory
-			// then we should first check to see if there's an
-			// excludes pattern (e.g. !dir/file) that starts with this
-			// dir. If so then we can't skip this dir.
-
-			// Its not a dir then so we can just return/skip.
-			if !f.IsDir() {
-				return nil
-			}
-
-			// No exceptions (!...) in patterns so just skip dir
-			if !pm.Exclusions() {
-				return filepath.SkipDir
-			}
-			dirSlash := relFilePath + string(filepath.Separator)
-			for _, pat := range pm.Patterns() {
-				if !pat.Exclusion() {
-					continue
-				}
-
-				if strings.HasPrefix(pat.String()+string(filepath.Separator), dirSlash) {
-					// found a match - so can't skip this dir
-					return nil
-				}
-			}
-
-			// No matching exclusion dir so just skip dir
-			return filepath.SkipDir
-		}
-
-		if seen[relFilePath] {
-			return nil
-		}
-
-		// Path is enough
-		seen[relFilePath] = true
-		if !f.IsDir() {
-			// Check file change
-			checksum, err := hashFileCRC32(filePath, 0xedb88320)
-			if err != nil {
-				return nil
-			}
-
-			retFiles = append(retFiles, relFilePath+";"+checksum)
-		}
-
-		return nil
-	})
-	if err != nil && !errors.Is(err, errFileReadOverLimit) {
-		return "", errors.Errorf("Error hashing %s: %v", srcPath, err)
+	if runtime.GOOS == "windows" {
+		srcPath = longpath.AddPrefix(srcPath)
 	}
 
-	// add to hash
-	sort.Strings(retFiles)
-	for _, f := range retFiles {
-		_, _ = hash.Write([]byte(f))
-	}
-	if len(retFiles) == 0 {
-		return "", nil
+	fileInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return "", err
 	}
 
-	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+	if !fileInfo.IsDir() {
+		return "", fmt.Errorf("path %s is not a directory", srcPath)
+	}
+
+	return srcPath, nil
 }
 
-func hashFileCRC32(filePath string, polynomial uint32) (string, error) {
-	//Initialize an empty return string now in case an error has to be returned
-	var returnCRC32String string
+func collectFiles(srcPath string, pm *patternmatcher.PatternMatcher, includeFiles []string) ([]string, error) {
+	retFiles := []string{}
 
-	//Open the fhe file located at the given path and check for errors
-	file, err := os.Open(filePath)
+	// Normalize includeFiles once to forward slashes for consistent matching
+	normalizedIncludes := make([]string, len(includeFiles))
+	for i, f := range includeFiles {
+		normalizedIncludes[i] = filepath.ToSlash(filepath.Clean(strings.TrimRight(f, "/\\")))
+	}
+
+	walker := &fileWalker{
+		srcPath:      srcPath,
+		pm:           pm,
+		includeFiles: normalizedIncludes,
+		retFiles:     &retFiles,
+	}
+
+	err := filepath.WalkDir(srcPath, walker.walkDirFunc)
 	if err != nil {
-		return returnCRC32String, err
+		if errors.Is(err, errFileReadOverLimit) {
+			return retFiles, fmt.Errorf(
+				"directory hash incomplete: exceeded limit of %d files (partial hash computed from first %d files): %w",
+				maxFilesToRead, len(retFiles), errFileReadOverLimit,
+			)
+		}
+		return nil, fmt.Errorf("failed to hash %s: %w", srcPath, err)
 	}
 
-	//Tell the program to close the file when the function returns
-	defer func() { _ = file.Close() }()
+	return retFiles, nil
+}
 
-	//Create the table with the given polynomial
-	tablePolynomial := crc32.MakeTable(polynomial)
+type fileWalker struct {
+	srcPath      string
+	pm           *patternmatcher.PatternMatcher
+	includeFiles []string
+	retFiles     *[]string
+}
 
-	//Open a new hash interface to write the file to
-	hash := crc32.New(tablePolynomial)
-
-	//Copy the file in the interface
-	if _, err := io.Copy(hash, file); err != nil {
-		return returnCRC32String, err
+func (w *fileWalker) walkDirFunc(filePath string, d os.DirEntry, err error) error {
+	if err != nil {
+		return fmt.Errorf("error walking %s: %w", filePath, err)
 	}
 
-	//Generate the hash
-	hashInBytes := hash.Sum(nil)[:]
+	if len(*w.retFiles) >= maxFilesToRead {
+		return errFileReadOverLimit
+	}
 
-	//Encode the hash to a string
-	returnCRC32String = hex.EncodeToString(hashInBytes)
+	relFilePath, err := w.getRelativePath(filePath)
+	if err != nil {
+		return err
+	}
 
-	//Return the output
-	return returnCRC32String, nil
+	return w.processEntry(relFilePath, d)
+}
+
+func (w *fileWalker) processEntry(relFilePath string, d os.DirEntry) error {
+	if shouldSkip, skipErr := w.shouldSkip(relFilePath, d); skipErr != nil {
+		return skipErr
+	} else if shouldSkip {
+		return nil
+	}
+
+	if !w.shouldIncludeFile(relFilePath) {
+		return nil
+	}
+
+	if !d.IsDir() {
+		*w.retFiles = append(*w.retFiles, relFilePath)
+	}
+
+	return nil
+}
+
+func (w *fileWalker) shouldSkip(relFilePath string, d os.DirEntry) (bool, error) {
+	skip, err := w.shouldSkipPath(relFilePath)
+	if err != nil {
+		return false, err
+	}
+	if skip {
+		if d.IsDir() {
+			return true, w.handleDirectorySkip(relFilePath)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (w *fileWalker) getRelativePath(filePath string) (string, error) {
+	relFilePath, err := filepath.Rel(w.srcPath, filePath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(relFilePath), nil
+}
+
+func (w *fileWalker) shouldIncludeFile(relFilePath string) bool {
+	if len(w.includeFiles) == 0 {
+		return true
+	}
+
+	relFilePath = filepath.Clean(relFilePath)
+
+	for _, f := range w.includeFiles {
+		// includeFiles are already normalized to forward slashes in collectFiles
+		if f == relFilePath || strings.HasPrefix(relFilePath, f+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *fileWalker) shouldSkipPath(relFilePath string) (bool, error) {
+	if relFilePath == "." {
+		return false, nil
+	}
+
+	skip, err := w.pm.MatchesOrParentMatches(relFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to match %s: %v", relFilePath, err)
+	}
+
+	return skip, nil
+}
+
+func (w *fileWalker) handleDirectorySkip(relFilePath string) error {
+	if !w.pm.Exclusions() {
+		return filepath.SkipDir
+	}
+
+	// Use forward slash consistently since relFilePath is normalized with filepath.ToSlash
+	dirSlash := relFilePath + "/"
+	for _, pat := range w.pm.Patterns() {
+		if !pat.Exclusion() {
+			continue
+		}
+
+		if strings.HasPrefix(pat.String()+"/", dirSlash) {
+			return nil
+		}
+	}
+
+	return filepath.SkipDir
 }

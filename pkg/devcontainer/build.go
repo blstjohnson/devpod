@@ -256,7 +256,16 @@ func (r *runner) buildImage(
 		return nil, err
 	}
 
-	prebuildHash, err := config.CalculatePrebuildHash(parsedConfig.Config, options.Platform, targetArch, config.GetContextPath(parsedConfig.Config), dockerfilePath, dockerfileContent, buildInfo, r.Log)
+	prebuildHash, err := config.CalculatePrebuildHash(config.PrebuildHashParams{
+		Config:            parsedConfig.Config,
+		Platform:          options.Platform,
+		Architecture:      targetArch,
+		ContextPath:       config.GetContextPath(parsedConfig.Config),
+		DockerfilePath:    dockerfilePath,
+		DockerfileContent: dockerfileContent,
+		BuildInfo:         buildInfo,
+		Log:               r.Log,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +336,15 @@ func (r *runner) buildImage(
 		return dockerlessFallback(r.LocalWorkspaceFolder, substitutionContext.ContainerWorkspaceFolder, parsedConfig, buildInfo, extendedBuildInfo, dockerfileContent, options)
 	}
 
-	return dockerDriver.BuildDevContainer(ctx, prebuildHash, parsedConfig, extendedBuildInfo, dockerfilePath, dockerfileContent, r.LocalWorkspaceFolder, options)
+	return dockerDriver.BuildDevContainer(ctx, driver.BuildRequest{
+		PrebuildHash:         prebuildHash,
+		ParsedConfig:         parsedConfig,
+		ExtendedBuildInfo:    extendedBuildInfo,
+		DockerfilePath:       dockerfilePath,
+		DockerfileContent:    dockerfileContent,
+		LocalWorkspaceFolder: r.LocalWorkspaceFolder,
+		Options:              options,
+	})
 }
 
 func (r *runner) buildDevImageCompose(
