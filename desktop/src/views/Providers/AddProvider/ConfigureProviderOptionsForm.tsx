@@ -31,12 +31,12 @@ import {
 } from "react"
 import { DefaultValues, FormProvider, UseFormReturn, useForm } from "react-hook-form"
 import { useNavigate } from "react-router"
-import { useBorderColor } from "../../../Theme"
-import { client } from "../../../client"
-import { useProvider, useProviders } from "../../../contexts"
-import { exists, useFormErrors } from "../../../lib"
-import { QueryKeys } from "../../../queryKeys"
 import { Routes } from "../../../routes.constants"
+import { useBorderColor } from "@/Theme"
+import { client } from "@/client"
+import { useProvider, useProviders } from "@/contexts"
+import { exists, useFormErrors } from "@/lib"
+import { QueryKeys } from "@/queryKeys"
 import {
   TConfigureProviderConfig,
   TProvider,
@@ -44,7 +44,7 @@ import {
   TProviderOption,
   TProviderOptions,
   TWorkspace,
-} from "../../../types"
+} from "@/types"
 import { canCreateMachine } from "../helpers"
 import { OptionFormField } from "./OptionFormField"
 import { useProviderDisplayOptions } from "./useProviderOptions"
@@ -109,7 +109,7 @@ function ProviderOptionsForm(props: TProviderOptionsFormProps) {
   const handleSave: TConfigureOptionsFormProps["onSave"] = useCallback(
     async ({ providerID, config, newName }) => {
       // Configure first, then rename to prevent UI route inconsistencies
-      ;(await client.providers.configure(providerID, config)).unwrap()
+      ; (await client.providers.configure(providerID, config)).unwrap()
 
       if (newName && newName !== providerID) {
         await rename.run({ oldProviderID: providerID, newProviderID: newName })
@@ -509,7 +509,7 @@ function useOptions(
       const newOptions: DefaultValues<TFieldValues> = {}
       for (const option in data) {
         if (data[option]?.value !== undefined) {
-          ;(newOptions as Record<string, any>)[option] = data[option].value
+          ; (newOptions as Record<string, any>)[option] = data[option].value
         }
       }
 
