@@ -62,7 +62,7 @@ func getWorkspacesToRebind(devPodConfig *config.Config, name string) ([]*provide
 	return workspacesToRebind, nil
 }
 
-// rebindWorkspaces updates the provider name for the given workspaces and saves the configurations
+// rebindWorkspaces updates the provider name for the given workspaces and saves the configurations.
 func rebindWorkspaces(
 	devPodConfig *config.Config,
 	workspacesToRebind []*provider.Workspace,
@@ -85,7 +85,7 @@ func rebindWorkspaces(
 	return successfulRebinds, aggregateError
 }
 
-// checks if default provider is touched by rename and updates default provider to newName
+// checks if default provider is touched by rename and updates default provider to newName.
 func adjustDefaultProvider(devPodConfig *config.Config, oldName string, newName string) error {
 	if devPodConfig.Current().DefaultProvider == oldName {
 		devPodConfig.Current().DefaultProvider = newName
@@ -120,7 +120,7 @@ func rollback(
 	return err
 }
 
-// validateProviderName validates the new provider name
+// validateProviderName validates the new provider name.
 func validateProviderName(newName string) error {
 	if provider.ProviderNameRegEx.MatchString(newName) {
 		return fmt.Errorf("provider name can only include lowercase letters, numbers or dashes")
@@ -131,8 +131,12 @@ func validateProviderName(newName string) error {
 	return nil
 }
 
-// cloneAndRebindProvider handles the core logic of cloning and rebinding workspaces
-func cloneAndRebindProvider(devPodConfig *config.Config, oldName, newName string, workspacesToRebind []*provider.Workspace) ([]*provider.Workspace, error) {
+// cloneAndRebindProvider handles the core logic of cloning and rebinding workspaces.
+func cloneAndRebindProvider(
+	devPodConfig *config.Config,
+	oldName,
+	newName string,
+	workspacesToRebind []*provider.Workspace) ([]*provider.Workspace, error) {
 	log.Default.Info("renaming provider using clone and rebinding workspaces")
 
 	_, cloneErr := workspace.CloneProvider(devPodConfig, newName, oldName, log.Default)
@@ -186,6 +190,11 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 	workspacesToRebind, err := getWorkspacesToRebind(devPodConfig, oldName)
 	if err != nil {
 		return err
+	}
+
+	_, newProviderExists := devPodConfig.Current().Providers[newName]
+	if newProviderExists {
+		return fmt.Errorf("provider %s already exists", newName)
 	}
 
 	successfulRebinds, renameErr := cloneAndRebindProvider(devPodConfig, oldName, newName, workspacesToRebind)

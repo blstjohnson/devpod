@@ -50,6 +50,10 @@ func (cmd *RebindCmd) Run(args []string) error {
 		return fmt.Errorf("loading workspace config: %w", err)
 	}
 
+	if _, err := workspace.FindProvider(devPodConfig, newProviderName, log.Default); err != nil {
+		return fmt.Errorf("provider %s does not exist: %w", newProviderName, err)
+	}
+
 	log.Default.Infof(
 		"Rebinding workspace %s (ID: %s) from provider %s to %s",
 		workspaceName,
