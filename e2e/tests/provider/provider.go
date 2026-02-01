@@ -180,32 +180,35 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
+				providerName := "provider-rename-" + framework.RandomSuffix()
+				renamedProviderName := "provider-renamed-" + framework.RandomSuffix()
+
 				// Ensure that provider is deleted.
-				err = f.DevPodProviderDelete(ctx, "provider-rename", "--ignore-not-found")
+				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
 				framework.ExpectNoError(err)
-				err = f.DevPodProviderDelete(ctx, "provider-renamed", "--ignore-not-found")
+				err = f.DevPodProviderDelete(ctx, renamedProviderName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 
 				// Add provider.
-				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", "provider-rename")
+				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", providerName)
 				framework.ExpectNoError(err)
 
 				// Ensure provider exists.
-				err = f.DevPodProviderUse(context.Background(), "provider-rename")
+				err = f.DevPodProviderUse(context.Background(), providerName)
 				framework.ExpectNoError(err)
 
 				// Rename provider.
-				err = f.DevPodProviderRename(context.Background(), "provider-rename", "provider-renamed")
+				err = f.DevPodProviderRename(context.Background(), providerName, renamedProviderName)
 				framework.ExpectNoError(err)
 
 				// Ensure old provider is gone and new one exists.
-				err = f.DevPodProviderUse(context.Background(), "provider-rename")
+				err = f.DevPodProviderUse(context.Background(), providerName)
 				framework.ExpectError(err)
-				err = f.DevPodProviderUse(context.Background(), "provider-renamed")
+				err = f.DevPodProviderUse(context.Background(), renamedProviderName)
 				framework.ExpectNoError(err)
 
 				// Cleanup: delete provider.
-				err = f.DevPodProviderDelete(ctx, "provider-renamed")
+				err = f.DevPodProviderDelete(ctx, renamedProviderName)
 				framework.ExpectNoError(err)
 			})
 
@@ -217,32 +220,35 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
+				providerToRename := "provider-to-rename-" + framework.RandomSuffix()
+				existingProvider := "existing-provider-" + framework.RandomSuffix()
+
 				// Ensure that providers are deleted.
-				err = f.DevPodProviderDelete(ctx, "provider-to-rename", "--ignore-not-found")
+				err = f.DevPodProviderDelete(ctx, providerToRename, "--ignore-not-found")
 				framework.ExpectNoError(err)
-				err = f.DevPodProviderDelete(ctx, "existing-provider", "--ignore-not-found")
+				err = f.DevPodProviderDelete(ctx, existingProvider, "--ignore-not-found")
 				framework.ExpectNoError(err)
 
 				// Add providers.
-				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", "provider-to-rename")
+				err = f.DevPodProviderAdd(ctx, tempDir+"/provider1.yaml", "--name", providerToRename)
 				framework.ExpectNoError(err)
-				err = f.DevPodProviderAdd(ctx, tempDir+"/provider2.yaml", "--name", "existing-provider")
+				err = f.DevPodProviderAdd(ctx, tempDir+"/provider2.yaml", "--name", existingProvider)
 				framework.ExpectNoError(err)
 
 				// Attempt to rename provider to an existing name.
-				err = f.DevPodProviderRename(context.Background(), "provider-to-rename", "existing-provider")
+				err = f.DevPodProviderRename(context.Background(), providerToRename, existingProvider)
 				framework.ExpectError(err)
 
 				// Ensure providers still exist.
-				err = f.DevPodProviderUse(context.Background(), "provider-to-rename")
+				err = f.DevPodProviderUse(context.Background(), providerToRename)
 				framework.ExpectNoError(err)
-				err = f.DevPodProviderUse(context.Background(), "existing-provider")
+				err = f.DevPodProviderUse(context.Background(), existingProvider)
 				framework.ExpectNoError(err)
 
 				// Cleanup: delete providers.
-				err = f.DevPodProviderDelete(ctx, "provider-to-rename")
+				err = f.DevPodProviderDelete(ctx, providerToRename)
 				framework.ExpectNoError(err)
-				err = f.DevPodProviderDelete(ctx, "existing-provider")
+				err = f.DevPodProviderDelete(ctx, existingProvider)
 				framework.ExpectNoError(err)
 			})
 
@@ -250,12 +256,15 @@ spec:
 			ginkgo.It("should fail to rename a non-existent provider", func() {
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
+				nonExistentProvider := "non-existent-provider-" + framework.RandomSuffix()
+				newName := "new-name-" + framework.RandomSuffix()
+
 				// Ensure that provider is deleted.
-				err = f.DevPodProviderDelete(ctx, "non-existent-provider", "--ignore-not-found")
+				err = f.DevPodProviderDelete(ctx, nonExistentProvider, "--ignore-not-found")
 				framework.ExpectNoError(err)
 
 				// Attempt to rename non-existent provider.
-				err = f.DevPodProviderRename(context.Background(), "non-existent-provider", "new-name")
+				err = f.DevPodProviderRename(context.Background(), nonExistentProvider, newName)
 				framework.ExpectError(err)
 			})
 
@@ -267,8 +276,8 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-				providerName := "provider-with-workspace"
-				renamedProviderName := "renamed-provider-with-workspace"
+				providerName := "provider-with-workspace-" + framework.RandomSuffix()
+				renamedProviderName := "renamed-provider-with-workspace-" + framework.RandomSuffix()
 
 				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
@@ -338,8 +347,8 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-				providerName := "provider-with-running-workspace"
-				renamedProviderName := "renamed-provider-with-running-workspace"
+				providerName := "provider-with-running-workspace-" + framework.RandomSuffix()
+				renamedProviderName := "renamed-provider-with-running-workspace-" + framework.RandomSuffix()
 
 				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
@@ -395,7 +404,7 @@ spec:
 
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-				providerName := "provider-to-rename-invalid"
+				providerName := "provider-to-rename-invalid-" + framework.RandomSuffix()
 
 				// Ensure that provider is deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
@@ -406,7 +415,7 @@ spec:
 				framework.ExpectNoError(err)
 
 				// Attempt to rename provider to an invalid name.
-				err = f.DevPodProviderRename(context.Background(), providerName, "invalid/name")
+				err = f.DevPodProviderRename(context.Background(), providerName, "invalid/name-"+framework.RandomSuffix())
 				framework.ExpectError(err)
 
 				// Ensure provider still exists.
