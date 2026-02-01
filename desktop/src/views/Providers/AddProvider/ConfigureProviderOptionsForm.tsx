@@ -109,7 +109,7 @@ function ProviderOptionsForm(props: TProviderOptionsFormProps) {
   const handleSave: TConfigureOptionsFormProps["onSave"] = useCallback(
     async ({ providerID, config, newName }) => {
       // Configure first, then rename to prevent UI route inconsistencies
-      ; (await client.providers.configure(providerID, config)).unwrap()
+      ;(await client.providers.configure(providerID, config)).unwrap()
 
       if (newName && newName !== providerID) {
         await rename.run({ oldProviderID: providerID, newProviderID: newName })
@@ -509,7 +509,7 @@ function useOptions(
       const newOptions: DefaultValues<TFieldValues> = {}
       for (const option in data) {
         if (data[option]?.value !== undefined) {
-          ; (newOptions as Record<string, any>)[option] = data[option].value
+          ;(newOptions as Record<string, any>)[option] = data[option].value
         }
       }
 
