@@ -422,19 +422,15 @@ func ProviderFromHost(ctx context.Context, devPodConfig *config.Config, proHost 
 }
 
 // SwitchProvider updates the provider name for the given workspace with client locking and state checking
-func SwitchProvider(ctx context.Context, devPodConfig *config.Config, workspace *providerpkg.Workspace, newProviderName string) error {
+func SwitchProvider(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	workspace *providerpkg.Workspace,
+	newProviderName string,
+) error {
 	client, err := Get(ctx, devPodConfig, []string{workspace.ID}, false, platform.AllOwnerFilter, false, log.Default)
 	if err != nil {
 		return fmt.Errorf("failed to get client for workspace %s: %w", workspace.ID, err)
-	}
-
-	status, err := client.Status(ctx, client2.StatusOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
-	}
-
-	if status != client2.StatusStopped && status != client2.StatusNotFound {
-		return fmt.Errorf("workspace %s is in state %s and cannot be switched. Only stopped or non-existent workspaces can be switched", workspace.ID, status)
 	}
 
 	err = client.Lock(ctx)
@@ -442,6 +438,19 @@ func SwitchProvider(ctx context.Context, devPodConfig *config.Config, workspace 
 		return fmt.Errorf("failed to lock workspace %s: %w", workspace.ID, err)
 	}
 	defer client.Unlock()
+
+	status, err := client.Status(ctx, client2.StatusOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
+	}
+
+	if status != client2.StatusStopped && status != client2.StatusNotFound {
+		return fmt.Errorf(
+			"workspace %s is in state %s and cannot be switched. Only stopped or non-existent workspaces can be switched",
+			workspace.ID,
+			status,
+		)
+	}
 
 	workspace.Provider.Name = newProviderName
 

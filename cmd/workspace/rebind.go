@@ -50,7 +50,13 @@ func (cmd *RebindCmd) Run(args []string) error {
 		return fmt.Errorf("loading workspace config: %w", err)
 	}
 
-	log.Default.Infof("Rebinding workspace %s (ID: %s) from provider %s to %s", workspaceName, workspaceID, workspaceConfig.Provider.Name, newProviderName)
+	log.Default.Infof(
+		"Rebinding workspace %s (ID: %s) from provider %s to %s",
+		workspaceName,
+		workspaceID,
+		workspaceConfig.Provider.Name,
+		newProviderName,
+	)
 
 	err = workspace.SwitchProvider(context.Background(), devPodConfig, workspaceConfig, newProviderName)
 	if err != nil {

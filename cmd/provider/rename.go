@@ -13,12 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// RenameCmd holds the cmd flags
+// RenameCmd holds the cmd flags.
 type RenameCmd struct {
 	*flags.GlobalFlags
 }
 
-// NewRenameCmd creates a new command
+// NewRenameCmd creates a new command.
 func NewRenameCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &RenameCmd{
 		GlobalFlags: globalFlags,
@@ -40,7 +40,7 @@ Example:
 	}
 }
 
-// getWorkspacesToRebind gathers workspaces that need to be rebound from provider name
+// getWorkspacesToRebind gathers workspaces that need to be rebound from provider name.
 func getWorkspacesToRebind(devPodConfig *config.Config, name string) ([]*provider.Workspace, error) {
 	workspaces, err := workspace.ListLocalWorkspaces(devPodConfig.DefaultContext, false, log.Default)
 	if err != nil {
@@ -63,7 +63,11 @@ func getWorkspacesToRebind(devPodConfig *config.Config, name string) ([]*provide
 }
 
 // rebindWorkspaces updates the provider name for the given workspaces and saves the configurations
-func rebindWorkspaces(devPodConfig *config.Config, workspacesToRebind []*provider.Workspace, newName string) ([]*provider.Workspace, error) {
+func rebindWorkspaces(
+	devPodConfig *config.Config,
+	workspacesToRebind []*provider.Workspace,
+	newName string,
+) ([]*provider.Workspace, error) {
 	var aggregateError error
 	var successfulRebinds []*provider.Workspace
 
@@ -96,7 +100,12 @@ func adjustDefaultProvider(devPodConfig *config.Config, oldName string, newName 
 	return nil
 }
 
-func rollback(devPodConfig *config.Config, workspacesTouched []*provider.Workspace, oldName string, newName string) error {
+func rollback(
+	devPodConfig *config.Config,
+	workspacesTouched []*provider.Workspace,
+	oldName string,
+	newName string,
+) error {
 	log.Default.Info("rolling back changes")
 	var _, err = rebindWorkspaces(devPodConfig, workspacesTouched, oldName)
 	if err != nil {
@@ -111,19 +120,63 @@ func rollback(devPodConfig *config.Config, workspacesTouched []*provider.Workspa
 	return err
 }
 
-// Run executes the command
-func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
-
-	oldName := args[0]
-	newName := args[1]
+// validateProviderName validates the new provider name
+func validateProviderName(newName string) error {
 	if provider.ProviderNameRegEx.MatchString(newName) {
 		return fmt.Errorf("provider name can only include lowercase letters, numbers or dashes")
 	}
 	if len(newName) > 32 {
 		return fmt.Errorf("provider name cannot be longer than 32 characters")
 	}
+	return nil
+}
 
+// cloneAndRebindProvider handles the core logic of cloning and rebinding workspaces
+func cloneAndRebindProvider(devPodConfig *config.Config, oldName, newName string, workspacesToRebind []*provider.Workspace) ([]*provider.Workspace, error) {
 	log.Default.Info("renaming provider using clone and rebinding workspaces")
+
+	_, cloneErr := workspace.CloneProvider(devPodConfig, newName, oldName, log.Default)
+	if cloneErr != nil {
+		return nil, fmt.Errorf("failed to clone provider: %w", cloneErr)
+	}
+
+	log.Default.Infof("provider successfully cloned from %s to %s", oldName, newName)
+
+	successfulRebinds, renameErr := rebindWorkspaces(devPodConfig, workspacesToRebind, newName)
+
+	if renameErr == nil {
+		renameErr = adjustDefaultProvider(devPodConfig, oldName, newName)
+	}
+
+	return successfulRebinds, renameErr
+}
+
+// cleanupOldProvider deletes the old provider after successful rename
+func cleanupOldProvider(devPodConfig *config.Config, oldName, newName string) error {
+	deleteErr := DeleteProviderConfig(devPodConfig, oldName, true)
+	if deleteErr != nil {
+		log.Default.Errorf("failed to delete old provider %s: %v", oldName, deleteErr)
+		return fmt.Errorf("failed to delete old provider after successful rename: %w", deleteErr)
+	}
+
+	log.Default.Infof("old provider %s deleted successfully", oldName)
+
+	_, err := workspace.FindProvider(devPodConfig, newName, log.Default)
+	if err != nil {
+		return fmt.Errorf("failed to load renamed provider %s: %w", newName, err)
+	}
+
+	return nil
+}
+
+// Run executes the command
+func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
+	oldName := args[0]
+	newName := args[1]
+
+	if err := validateProviderName(newName); err != nil {
+		return err
+	}
 
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -135,18 +188,7 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, cloneErr := workspace.CloneProvider(devPodConfig, newName, oldName, log.Default)
-	if cloneErr != nil {
-		return fmt.Errorf("failed to clone provider: %w", cloneErr)
-	}
-
-	log.Default.Infof("provider successfully cloned from %s to %s", oldName, newName)
-
-	successfulRebinds, renameErr := rebindWorkspaces(devPodConfig, workspacesToRebind, newName)
-
-	if renameErr == nil {
-		renameErr = adjustDefaultProvider(devPodConfig, oldName, newName)
-	}
+	successfulRebinds, renameErr := cloneAndRebindProvider(devPodConfig, oldName, newName, workspacesToRebind)
 
 	if renameErr != nil {
 		log.Default.Errorf("failed to rename provider %s to %s: %v", oldName, newName, renameErr)
@@ -154,17 +196,9 @@ func (cmd *RenameCmd) Run(cobraCmd *cobra.Command, args []string) error {
 		return errors.Join(renameErr, err)
 	}
 
-	deleteErr := DeleteProviderConfig(devPodConfig, oldName, true)
-	if deleteErr != nil {
-		log.Default.Errorf("failed to delete old provider %s: %v", oldName, deleteErr)
-		return fmt.Errorf("failed to delete old provider after successful rename: %w", deleteErr)
-	}
-
-	log.Default.Infof("old provider %s deleted successfully", oldName)
-
-	_, err = workspace.FindProvider(devPodConfig, newName, log.Default)
+	err = cleanupOldProvider(devPodConfig, oldName, newName)
 	if err != nil {
-		return fmt.Errorf("failed to load renamed provider %s: %w", newName, err)
+		return err
 	}
 
 	log.Default.Donef("successfully renamed provider %s to %s and rebound all associated workspaces", oldName, newName)

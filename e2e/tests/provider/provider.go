@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	"github.com/skevetter/devpod/e2e/framework"
 )
 
@@ -259,7 +260,7 @@ spec:
 			})
 
 			// RENAME-4
-			ginkgo.It("should rename a provider with an associated workspace", func() {
+			ginkgo.It("should rename a provider with an associated stopped workspace", func() {
 				tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
 				framework.ExpectNoError(err)
 				ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
@@ -281,8 +282,12 @@ spec:
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
 
-				// Create workspace
+				// Create and start workspace
 				err = f.DevPodUp(ctx, tempDir)
+				framework.ExpectNoError(err)
+
+				// Stop the workspace before renaming (running workspaces cannot be switched)
+				err = f.DevPodStop(ctx, tempDir)
 				framework.ExpectNoError(err)
 
 				// Rename provider
@@ -295,7 +300,10 @@ spec:
 				err = f.DevPodProviderUse(ctx, renamedProviderName)
 				framework.ExpectNoError(err)
 
-				// Verify that the workspace is now accessible
+				// Start the workspace with the new provider and verify it's accessible
+				err = f.DevPodUp(ctx, tempDir)
+				framework.ExpectNoError(err)
+
 				_, err = f.DevPodSSH(ctx, tempDir, "echo 'hello'")
 				framework.ExpectNoError(err)
 
@@ -307,6 +315,52 @@ spec:
 			})
 
 			// RENAME-5
+			ginkgo.It("should fail to rename a provider with a running workspace", func() {
+				tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
+				framework.ExpectNoError(err)
+				ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
+
+				f := framework.NewDefaultFramework(initialDir + "/bin")
+
+				providerName := "provider-with-running-workspace"
+				renamedProviderName := "renamed-provider-with-running-workspace"
+
+				// Ensure that providers are deleted
+				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
+				framework.ExpectNoError(err)
+				err = f.DevPodProviderDelete(ctx, renamedProviderName, "--ignore-not-found")
+				framework.ExpectNoError(err)
+
+				// Add and use provider
+				err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
+				framework.ExpectNoError(err)
+				err = f.DevPodProviderUse(ctx, providerName)
+				framework.ExpectNoError(err)
+
+				// Create and start workspace (workspace remains running)
+				err = f.DevPodUp(ctx, tempDir)
+				framework.ExpectNoError(err)
+
+				// Attempt to rename provider - this should fail because workspace is running
+				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
+				framework.ExpectError(err)
+				gomega.Expect(err.Error()).To(gomega.ContainSubstring("cannot be switched"))
+				gomega.Expect(err.Error()).To(gomega.ContainSubstring("Running"))
+
+				// Verify that the old provider still exists and the new one doesn't
+				err = f.DevPodProviderUse(ctx, providerName)
+				framework.ExpectNoError(err)
+				err = f.DevPodProviderUse(ctx, renamedProviderName)
+				framework.ExpectError(err)
+
+				// Cleanup
+				err = f.DevPodWorkspaceDelete(ctx, tempDir)
+				framework.ExpectNoError(err)
+				err = f.DevPodProviderDelete(ctx, providerName)
+				framework.ExpectNoError(err)
+			})
+
+			// RENAME-6 (was RENAME-5)
 			ginkgo.It("should fail to rename a provider to an invalid name", func() {
 				tempDir, err := framework.CopyToTempDir("tests/provider/testdata/simple-k8s-provider")
 				framework.ExpectNoError(err)
