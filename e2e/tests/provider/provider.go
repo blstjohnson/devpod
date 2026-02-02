@@ -8,6 +8,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/skevetter/devpod/e2e/framework"
+	"github.com/skevetter/devpod/pkg/workspace"
 )
 
 var _ = DevPodDescribe("devpod provider test suite", func() {
@@ -270,21 +271,31 @@ spec:
 
 			// RENAME-4.
 			ginkgo.It("should rename a provider with an associated stopped workspace", func() {
-				ginkgo.Skip("skiped, while issue with stopping containers persist, when stopping workspaces")
-				tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
-				framework.ExpectNoError(err)
-				ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
-
 				f := framework.NewDefaultFramework(initialDir + "/bin")
 
 				providerName := "provider-with-workspace4"
 				renamedProviderName := "renamed-provider-with-workspace4"
+
+				workspaceList, err := f.DevPodListParsed(ctx)
+				framework.ExpectNoError(err)
+				for _, ws := range workspaceList {
+					if ws.Provider.Name == providerName {
+						err = f.DevPodStop(ctx, ws.ID)
+						framework.ExpectNoError(err)
+						err = f.DevPodWorkspaceDelete(ctx, ws.ID)
+						framework.ExpectNoError(err)
+					}
+				}
 
 				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, renamedProviderName, "--ignore-not-found")
 				framework.ExpectNoError(err)
+
+				tempDir, err := framework.CopyToTempDir("tests/up/testdata/no-devcontainer")
+				framework.ExpectNoError(err)
+				ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
 				// Add and use provider.
 				err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
@@ -295,6 +306,18 @@ spec:
 				// Create and start workspace.
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
+
+				// Wait for the workspace to reach running state.
+				gomega.Eventually(func() string {
+					status, err := f.DevPodStatus(ctx, tempDir)
+					if err != nil {
+						return "error"
+					}
+					state := string(status.State)
+					return state
+				}).WithTimeout(30 * time.Second).
+					WithPolling(1 * time.Second).
+					Should(gomega.Equal("Running"))
 
 				// Stop the workspace before renaming (running workspaces cannot be switched).
 				err = f.DevPodStop(ctx, tempDir)
@@ -314,6 +337,8 @@ spec:
 
 				// Rename provider.
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
+				status, _ := f.DevPodStatus(ctx, tempDir)
+				ginkgo.GinkgoLogr.Info(status.State)
 				framework.ExpectNoError(err)
 
 				// Verify that the old provider is gone and the new one exists.
@@ -343,6 +368,17 @@ spec:
 				// Cleanup.
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
+
+				// Verify workspace is completely removed before deleting provider
+				// Also try to find the actual workspace ID by listing all workspaces
+				workspaceID := workspace.ToID(tempDir) // Convert tempDir to workspace ID
+				gomega.Eventually(func() error {
+					_, err := f.FindWorkspace(ctx, workspaceID)
+					return err
+				}).WithTimeout(30 * time.Second).
+					WithPolling(1 * time.Second).
+					Should(gomega.HaveOccurred())
+
 				err = f.DevPodProviderDelete(ctx, renamedProviderName)
 				framework.ExpectNoError(err)
 			})
@@ -359,7 +395,7 @@ spec:
 				renamedProviderName := "renamed-provider-workspace5"
 
 				// Ensure that providers are deleted.
-				_ = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
+				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderDelete(ctx, renamedProviderName, "--ignore-not-found")
 				framework.ExpectNoError(err)
@@ -414,8 +450,8 @@ spec:
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
 				// TODO: failing, cause stopping workspace doesn't always stop client.
-				_ = f.DevPodProviderDelete(ctx, providerName)
-
+				err = f.DevPodProviderDelete(ctx, providerName)
+				framework.ExpectNoError(err)
 			})
 
 			// RENAME-6 (was RENAME-5).

@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/skevetter/devpod/pkg/binaries"
-	client2 "github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/download"
 	"github.com/skevetter/devpod/pkg/platform"
@@ -575,7 +574,7 @@ func buildGithubURL(path, release string) string {
 	return fmt.Sprintf("https://github.com/%s/releases/download/%s/provider.yaml", path, release)
 }
 
-// SwitchProvider updates the provider name for the given workspace with client locking and state checking.
+// SwitchProvider updates the provider name for the given workspace with client locking.
 func SwitchProvider(
 	ctx context.Context,
 	devPodConfig *config.Config,
@@ -592,19 +591,6 @@ func SwitchProvider(
 		return fmt.Errorf("failed to lock workspace %s: %w", workspace.ID, err)
 	}
 	defer client.Unlock()
-
-	status, err := client.Status(ctx, client2.StatusOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
-	}
-
-	if status != client2.StatusStopped && status != client2.StatusNotFound {
-		return fmt.Errorf(
-			"workspace %s is in state %s and cannot be switched. Only stopped or non-existent workspaces can be switched",
-			workspace.ID,
-			status,
-		)
-	}
 
 	workspace.Provider.Name = newProviderName
 
