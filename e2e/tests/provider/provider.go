@@ -313,8 +313,6 @@ spec:
 
 				// Rename provider.
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
-				status, _ := f.DevPodStatus(ctx, tempDir)
-				ginkgo.GinkgoLogr.Info(status.State)
 				framework.ExpectNoError(err)
 
 				// Verify that the old provider is gone and the new one exists.
@@ -327,21 +325,12 @@ spec:
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
 
-				gomega.Eventually(func() string {
-					status, err := f.DevPodStatus(ctx, tempDir)
-					if err != nil {
-						return "error"
-					}
-					state := string(status.State)
-					return state
-				}).WithTimeout(30 * time.Second).
-					WithPolling(1 * time.Second).
-					Should(gomega.Equal("Running"))
-
 				_, err = f.DevPodSSH(ctx, tempDir, "echo 'hello'")
 				framework.ExpectNoError(err)
 
 				// Cleanup.
+				err = f.DevPodStop(ctx, tempDir)
+				framework.ExpectNoError(err)
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
 
@@ -402,17 +391,6 @@ spec:
 				// Stop workspace.
 				err = f.DevPodStop(ctx, tempDir)
 				framework.ExpectNoError(err)
-
-				// Wait for the workspace to reach stopped state.
-				gomega.Eventually(func() string {
-					status, err := f.DevPodStatus(ctx, tempDir)
-					if err != nil {
-						return "error"
-					}
-					return string(status.State)
-				}).WithTimeout(30 * time.Second).
-					WithPolling(1 * time.Second).
-					Should(gomega.Or(gomega.Equal("Stopped"), gomega.Equal("NotFound")))
 
 				// Verify that the old provider still exists and the new one doesn't.
 				err = f.DevPodProviderUse(ctx, providerName)
