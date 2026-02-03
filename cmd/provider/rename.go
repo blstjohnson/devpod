@@ -92,6 +92,7 @@ func adjustDefaultProvider(devPodConfig *config.Config, oldName string, newName 
 		devPodConfig.Current().DefaultProvider = newName
 		err := config.SaveConfig(devPodConfig)
 		if err != nil {
+			devPodConfig.Current().DefaultProvider = oldName
 			log.Default.Errorf("failed to update default provider to %s: %v", newName, err)
 			return err
 		} else {

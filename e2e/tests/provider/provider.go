@@ -369,9 +369,7 @@ spec:
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
 
-				// Verify workspace is completely removed before deleting provider
-				// Also try to find the actual workspace ID by listing all workspaces
-				workspaceID := workspace.ToID(tempDir) // Convert tempDir to workspace ID
+				workspaceID := workspace.ToID(tempDir)
 				gomega.Eventually(func() error {
 					_, err := f.FindWorkspace(ctx, workspaceID)
 					return err
@@ -393,6 +391,17 @@ spec:
 
 				providerName := "provider-with-running-workspace5"
 				renamedProviderName := "renamed-provider-workspace5"
+
+				workspaceList, err := f.DevPodListParsed(ctx)
+				framework.ExpectNoError(err)
+				for _, ws := range workspaceList {
+					if ws.Provider.Name == providerName || ws.Provider.Name == renamedProviderName {
+						err = f.DevPodStop(ctx, ws.ID)
+						framework.ExpectNoError(err)
+						err = f.DevPodWorkspaceDelete(ctx, ws.ID)
+						framework.ExpectNoError(err)
+					}
+				}
 
 				// Ensure that providers are deleted.
 				err = f.DevPodProviderDelete(ctx, providerName, "--ignore-not-found")
@@ -449,7 +458,6 @@ spec:
 				// Cleanup.
 				err = f.DevPodWorkspaceDelete(ctx, tempDir)
 				framework.ExpectNoError(err)
-				// TODO: failing, cause stopping workspace doesn't always stop client.
 				err = f.DevPodProviderDelete(ctx, providerName)
 				framework.ExpectNoError(err)
 			})

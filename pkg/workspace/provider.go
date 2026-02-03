@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	client2 "github.com/skevetter/devpod/pkg/client"
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	providerpkg "github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/devpod/pkg/types"
@@ -590,6 +591,15 @@ func SwitchProvider(
 	if err != nil {
 		return fmt.Errorf("failed to lock workspace %s: %w", workspace.ID, err)
 	}
+
+	status, err := client.Status(ctx, client2.StatusOptions{ContainerStatus: true})
+	if err != nil {
+		return fmt.Errorf("failed to get sataus for workspace %s: %w", workspace.ID, err)
+	}
+	if status != client2.StatusStopped && status != client2.StatusNotFound {
+		return fmt.Errorf("workspace %s is in state %s and cannot be switched. Only stopped or non-existent workspaces can be switched", workspace.ID, status)
+	}
+
 	defer client.Unlock()
 
 	workspace.Provider.Name = newProviderName
