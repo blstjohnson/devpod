@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,28 +14,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/skevetter/devpod/cmd/flags"
-
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/pkg/agent"
 	"github.com/skevetter/devpod/pkg/agent/tunnel"
 	"github.com/skevetter/devpod/pkg/agent/tunnelserver"
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/compress"
 	config2 "github.com/skevetter/devpod/pkg/config"
-	"github.com/skevetter/devpod/pkg/copy"
 	"github.com/skevetter/devpod/pkg/credentials"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/setup"
 	"github.com/skevetter/devpod/pkg/dockercredentials"
-	"github.com/skevetter/devpod/pkg/envfile"
 	"github.com/skevetter/devpod/pkg/extract"
 	"github.com/skevetter/devpod/pkg/git"
 	"github.com/skevetter/devpod/pkg/ide/fleet"
@@ -49,8 +43,6 @@ import (
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
-
-var DockerlessImageConfigOutput = "/.dockerless/image.json"
 
 // SetupContainerCmd holds the cmd flags
 type SetupContainerCmd struct {
@@ -135,14 +127,21 @@ func (cmd *SetupContainerCmd) prepareWorkspace(sctx *setupContext) error {
 		return err
 	}
 
-	if err := dockerlessBuild(
-		sctx.ctx,
-		sctx.setupInfo,
-		&sctx.workspaceInfo.Dockerless,
-		sctx.tunnelClient,
-		cmd.Debug,
-		sctx.logger,
-	); err != nil {
+	if err := agent.DockerlessBuild(agent.DockerlessBuildOptions{
+		Context:           sctx.ctx,
+		SetupInfo:         sctx.setupInfo,
+		DockerlessOptions: &sctx.workspaceInfo.Dockerless,
+		ImageConfigOutput: agent.DefaultImageConfigPath,
+		Debug:             cmd.Debug,
+		Log:               sctx.logger,
+		ConfigureCredentialsFunc: func(ctx context.Context) (string, error) {
+			serverPort, err := credentials.StartCredentialsServer(ctx, sctx.tunnelClient, sctx.logger)
+			if err != nil {
+				return "", err
+			}
+			return dockercredentials.ConfigureCredentialsDockerless(agent.DockerlessCredentialsPath, serverPort, sctx.logger)
+		},
+	}); err != nil {
 		return fmt.Errorf("dockerless build: %w", err)
 	}
 
@@ -265,7 +264,7 @@ func (cmd *SetupContainerCmd) setupGitCredentials(
 	}
 
 	cancelCtx, cancel := context.WithCancel(ctx)
-	cleanupFunc, err := configureSystemGitCredentials(cancelCtx, cancel, tunnelClient, logger)
+	cleanupFunc, err := configureSystemGitCredentials(cancelCtx, tunnelClient, logger)
 	if err != nil {
 		cancel()
 		logger.Errorf("error configuring git credentials: %v", err)
@@ -341,11 +340,11 @@ func (cmd *SetupContainerCmd) sendSetupResult(
 ) error {
 	out, err := json.Marshal(setupInfo)
 	if err != nil {
-		return fmt.Errorf("marshal setup info %w", err)
+		return fmt.Errorf("marshal setup info: %w", err)
 	}
 
 	if _, err := tunnelClient.SendResult(ctx, &tunnel.Message{Message: string(out)}); err != nil {
-		return fmt.Errorf("send result %w", err)
+		return fmt.Errorf("send result: %w", err)
 	}
 
 	return nil
@@ -365,174 +364,10 @@ func fillContainerEnv(setupInfo *config.Result) error {
 	newMergedConfig := &config.MergedDevContainerConfig{}
 	err := config.SubstituteContainerEnv(config.ListToObject(os.Environ()), setupInfo.MergedConfig, newMergedConfig)
 	if err != nil {
-		return fmt.Errorf("substitute container env %w", err)
+		return fmt.Errorf("substitute container env: %w", err)
 	}
 	setupInfo.MergedConfig = newMergedConfig
 	return nil
-}
-
-func dockerlessBuild(
-	ctx context.Context,
-	setupInfo *config.Result,
-	dockerlessOptions *provider2.ProviderDockerlessOptions,
-	client tunnel.TunnelClient,
-	debug bool,
-	log log.Logger,
-) error {
-	if os.Getenv("DOCKERLESS") != "true" {
-		return nil
-	}
-
-	_, err := os.Stat(DockerlessImageConfigOutput)
-	if err == nil {
-		log.Debugf("skip dockerless build, because container was built already")
-		return nil
-	}
-
-	buildContext := os.Getenv("DOCKERLESS_CONTEXT")
-	if buildContext == "" {
-		log.Debugf("build context is missing for dockerless build")
-		return nil
-	}
-
-	// check if build info is there
-	fallbackDir := filepath.Join(config.DevPodDockerlessBuildInfoFolder, config.DevPodContextFeatureFolder)
-	buildInfoDir := filepath.Join(buildContext, config.DevPodContextFeatureFolder)
-	_, err = os.Stat(buildInfoDir)
-	if err != nil {
-		// try to rename from fallback dir
-		err = copy.RenameDirectory(fallbackDir, buildInfoDir)
-		if err != nil {
-			return fmt.Errorf("rename dir %w", err)
-		}
-
-		_, err = os.Stat(buildInfoDir)
-		if err != nil {
-			return fmt.Errorf("couldn't find build dir %s %w", buildInfoDir, err)
-		}
-	}
-
-	binaryPath, err := os.Executable()
-	if err != nil {
-		return err
-	}
-
-	// configure credentials
-	if dockerlessOptions.DisableDockerCredentials != "true" {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(ctx)
-		defer cancel()
-
-		// configure the docker credentials
-		dockerCredentialsDir, err := configureDockerCredentials(ctx, cancel, client, log)
-		if err != nil {
-			log.Errorf("error configuring docker credentials: %v", err)
-		} else {
-			defer func() {
-				_ = os.Unsetenv("DOCKER_CONFIG")
-				_ = os.RemoveAll(dockerCredentialsDir)
-			}()
-		}
-	}
-
-	// build args
-	args := []string{"build", "--ignore-path", binaryPath}
-	args = append(args, parseIgnorePaths(dockerlessOptions.IgnorePaths)...)
-	args = append(args, "--build-arg", "TARGETOS="+runtime.GOOS)
-	args = append(args, "--build-arg", "TARGETARCH="+runtime.GOARCH)
-	if dockerlessOptions.RegistryCache != "" {
-		log.Debugf("appending registry cache to dockerless build arguments: %v", dockerlessOptions.RegistryCache)
-		args = append(args, "--registry-cache", dockerlessOptions.RegistryCache)
-	}
-
-	// ignore mounts
-	args = append(args, "--ignore-path", setupInfo.SubstitutionContext.ContainerWorkspaceFolder)
-	for _, m := range setupInfo.MergedConfig.Mounts {
-		// check if there already, then we don't touch it
-		files, err := os.ReadDir(m.Target)
-		if err == nil && len(files) > 0 {
-			args = append(args, "--ignore-path", m.Target)
-		}
-	}
-
-	// write output to log
-	errWriter := log.Writer(logrus.InfoLevel, false)
-	defer func() { _ = errWriter.Close() }()
-
-	// start building
-	log.Infof("start dockerless building %s %s", "/.dockerless/dockerless", strings.Join(args, " "))
-	cmd := exec.CommandContext(ctx, "/.dockerless/dockerless", args...)
-
-	if debug {
-		debugWriter := log.Writer(logrus.DebugLevel, false)
-		defer func() { _ = debugWriter.Close() }()
-		cmd.Stdout = debugWriter
-	}
-	cmd.Stderr = errWriter
-	cmd.Env = os.Environ()
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	// add container env to envfile.json
-	rawConfig, err := os.ReadFile(DockerlessImageConfigOutput)
-	if err != nil {
-		return err
-	}
-
-	// parse config file
-	configFile := &v1.ConfigFile{}
-	err = json.Unmarshal(rawConfig, configFile)
-	if err != nil {
-		return fmt.Errorf("parse container config %w", err)
-	}
-
-	// apply env
-	envfile.MergeAndApply(config.ListToObject(configFile.Config.Env), log)
-
-	// rename build path
-	_ = os.RemoveAll(fallbackDir)
-	err = copy.RenameDirectory(buildInfoDir, fallbackDir)
-	if err != nil {
-		log.Debugf("error renaming dir %s: %v", buildInfoDir, err)
-		return nil
-	}
-
-	return nil
-}
-
-func parseIgnorePaths(ignorePaths string) []string {
-	if strings.TrimSpace(ignorePaths) == "" {
-		return nil
-	}
-
-	retPaths := []string{}
-	splitted := strings.SplitSeq(ignorePaths, ",")
-	for s := range splitted {
-		retPaths = append(retPaths, "--ignore-path", strings.TrimSpace(s))
-	}
-
-	return retPaths
-}
-
-func configureDockerCredentials(
-	ctx context.Context,
-	cancel context.CancelFunc,
-	client tunnel.TunnelClient,
-	log log.Logger,
-) (string, error) {
-	serverPort, err := credentials.StartCredentialsServer(ctx, cancel, client, log)
-	if err != nil {
-		return "", err
-	}
-
-	dockerCredentials, err := dockercredentials.ConfigureCredentialsDockerless("/.dockerless/.docker", serverPort, log)
-	if err != nil {
-		return "", err
-	}
-
-	return dockerCredentials, nil
 }
 
 func (cmd *SetupContainerCmd) installIDE(setupInfo *config.Result, ide *provider2.WorkspaceIDEConfig, log log.Logger) error {
@@ -676,7 +511,7 @@ func (cmd *SetupContainerCmd) setupOpenVSCode(setupInfo *config.Result, ideOptio
 			return exec.Command(binaryPath, "agent", "container", "openvscode-async", "--setup-info", cmd.SetupInfo), nil
 		})
 		if err != nil {
-			return fmt.Errorf("install extensions %w", err)
+			return fmt.Errorf("install extensions: %w", err)
 		}
 	}
 
@@ -684,12 +519,12 @@ func (cmd *SetupContainerCmd) setupOpenVSCode(setupInfo *config.Result, ideOptio
 	return openVSCode.Start()
 }
 
-func configureSystemGitCredentials(ctx context.Context, cancel context.CancelFunc, client tunnel.TunnelClient, log log.Logger) (func(), error) {
+func configureSystemGitCredentials(ctx context.Context, client tunnel.TunnelClient, log log.Logger) (func(), error) {
 	if !command.Exists("git") {
 		return nil, errors.New("git not found")
 	}
 
-	serverPort, err := credentials.StartCredentialsServer(ctx, cancel, client, log)
+	serverPort, err := credentials.StartCredentialsServer(ctx, client, log)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +539,7 @@ func configureSystemGitCredentials(ctx context.Context, cancel context.CancelFun
 
 	err = git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--system", "--add", "credential.helper", gitCredentials).Run()
 	if err != nil {
-		return nil, fmt.Errorf("add git credential helper %w", err)
+		return nil, fmt.Errorf("add git credential helper: %w", err)
 	}
 
 	cleanup := func() {
@@ -741,14 +576,14 @@ func streamMount(ctx context.Context, workspaceInfo *provider2.ContainerWorkspac
 		)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return fmt.Errorf("create request %w", err)
+			return fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", workspaceInfo.CLIOptions.Platform.AccessKey))
 
 		// send the request
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("download workspace %w", err)
+			return fmt.Errorf("download workspace: %w", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
 
@@ -767,7 +602,7 @@ func streamMount(ctx context.Context, workspaceInfo *provider2.ContainerWorkspac
 		// target folder
 		err = extract.Extract(progressReader, m.Target)
 		if err != nil {
-			return fmt.Errorf("stream mount %s %w", m.String(), err)
+			return fmt.Errorf("stream mount %s: %w", m.String(), err)
 		}
 
 		return nil
@@ -777,13 +612,13 @@ func streamMount(ctx context.Context, workspaceInfo *provider2.ContainerWorkspac
 	logger.Infof("Copy %s into DevContainer %s", m.Source, m.Target)
 	stream, err := tunnelClient.StreamMount(ctx, &tunnel.StreamMountRequest{Mount: m.String()})
 	if err != nil {
-		return fmt.Errorf("init stream mount %s %w", m.String(), err)
+		return fmt.Errorf("init stream mount %s: %w", m.String(), err)
 	}
 
 	// target folder
 	err = extract.Extract(tunnelserver.NewStreamReader(stream, logger), m.Target)
 	if err != nil {
-		return fmt.Errorf("stream mount %s %w", m.String(), err)
+		return fmt.Errorf("stream mount %s: %w", m.String(), err)
 	}
 
 	return nil

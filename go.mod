@@ -15,7 +15,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/distribution/reference v0.6.0
-	github.com/docker/cli v29.2.0+incompatible
+	github.com/docker/cli v29.2.1+incompatible
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.6.0
 	github.com/evanphx/json-patch v5.9.11+incompatible
@@ -40,7 +40,6 @@ require (
 	github.com/moby/term v0.5.2
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/pkg/errors v0.9.1
 	github.com/pkg/sftp v1.13.10
 	github.com/ramr/go-reaper v0.3.1
 	github.com/sirupsen/logrus v1.9.4
@@ -222,6 +221,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runtime-spec v1.3.0 // indirect
 	github.com/pires/go-proxyproto v0.8.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus-community/pro-bing v0.4.0 // indirect

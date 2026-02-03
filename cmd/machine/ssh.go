@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/mattn/go-isatty"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
 	devagent "github.com/skevetter/devpod/pkg/agent"
@@ -145,12 +144,12 @@ func RunSSHSession(ctx context.Context, sshClient *ssh.Client, agentForwarding b
 	if agentForwarding && authSock != "" {
 		err = devsshagent.ForwardToRemote(sshClient, authSock)
 		if err != nil {
-			return errors.Errorf("forward agent: %v", err)
+			return fmt.Errorf("forward agent: %w", err)
 		}
 
 		err = devsshagent.RequestAgentForwarding(session)
 		if err != nil {
-			return errors.Errorf("request agent forwarding: %v", err)
+			return fmt.Errorf("request agent forwarding: %w", err)
 		}
 	}
 
@@ -194,7 +193,7 @@ func RunSSHSession(ctx context.Context, sshClient *ssh.Client, agentForwarding b
 			width, height = w, h
 		}
 		if err = session.RequestPty(t, height, width, ssh.TerminalModes{}); err != nil {
-			return fmt.Errorf("request pty %w", err)
+			return fmt.Errorf("request pty: %w", err)
 		}
 	}
 
@@ -203,16 +202,16 @@ func RunSSHSession(ctx context.Context, sshClient *ssh.Client, agentForwarding b
 	session.Stderr = stderr
 	if command == "" {
 		if err := session.Shell(); err != nil {
-			return fmt.Errorf("start ssh session with shell %w", err)
+			return fmt.Errorf("start ssh session with shell: %w", err)
 		}
 	} else {
 		if err := session.Start(command); err != nil {
-			return fmt.Errorf("start ssh session with command %s %w", command, err)
+			return fmt.Errorf("start ssh session with command %s: %w", command, err)
 		}
 	}
 
 	if err := session.Wait(); err != nil {
-		return fmt.Errorf("ssh session %w", err)
+		return fmt.Errorf("ssh session: %w", err)
 	}
 
 	return nil

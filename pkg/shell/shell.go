@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/interp"
 	"mvdan.cc/sh/v3/syntax"
@@ -24,7 +24,7 @@ func RunEmulatedShell(ctx context.Context, command string, stdin io.Reader, stdo
 	// Let's parse the complete command
 	parsed, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil {
-		return fmt.Errorf("parse shell command %w", err)
+		return fmt.Errorf("parse shell command: %w", err)
 	}
 
 	// use system default as environ if unspecified
@@ -63,7 +63,7 @@ func RunEmulatedShell(ctx context.Context, command string, stdin io.Reader, stdo
 	// Create shell runner
 	r, err := interp.New(options...)
 	if err != nil {
-		return fmt.Errorf("create shell runner %w", err)
+		return fmt.Errorf("create shell runner: %w", err)
 	}
 
 	// Run command

@@ -6,7 +6,6 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/crane"
 	"github.com/skevetter/devpod/pkg/language"
@@ -68,7 +67,7 @@ func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContaine
 						return match, nil
 					}
 				}
-				return "", errors.Errorf("devcontainer with ID '%s' not found", options.DevContainerID)
+				return "", fmt.Errorf("devcontainer with ID '%s' not found", options.DevContainerID)
 			},
 		)
 	} else {
@@ -78,7 +77,7 @@ func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContaine
 			func(matches []string) (string, error) {
 				if len(matches) > 1 {
 					ids, _ := config.ListDevContainerIDs(localWorkspaceFolder)
-					return "", errors.Errorf("multiple devcontainer configurations found. Use --devcontainer-id to select one: %v", ids)
+					return "", fmt.Errorf("multiple devcontainer configurations found. Use --devcontainer-id to select one: %v", ids)
 				}
 				return matches[0], nil
 			},
@@ -88,7 +87,7 @@ func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContaine
 	// We want to fail only in case of real errors, non-existing devcontainer.jon
 	// will be gracefully handled by the auto-detection mechanism
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("parsing devcontainer.json %w", err)
+		return nil, fmt.Errorf("parsing devcontainer.json: %w", err)
 	} else if rawParsedConfig == nil {
 		r.Log.Infof("Couldn't find a devcontainer.json")
 		return r.getDefaultConfig(options)
@@ -111,7 +110,7 @@ func (r *runner) getDefaultConfig(options provider2.CLIOptions) (*config.DevCont
 	defaultConfig.Origin = path.Join(filepath.ToSlash(r.LocalWorkspaceFolder), ".devcontainer.json")
 	err := config.SaveDevContainerJSON(defaultConfig)
 	if err != nil {
-		return nil, fmt.Errorf("write default devcontainer.json %w", err)
+		return nil, fmt.Errorf("write default devcontainer.json: %w", err)
 	}
 	return defaultConfig, nil
 }

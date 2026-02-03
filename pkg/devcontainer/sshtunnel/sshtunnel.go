@@ -12,7 +12,8 @@ import (
 
 	"github.com/skevetter/log"
 
-	"github.com/pkg/errors"
+	"errors"
+
 	"github.com/sirupsen/logrus"
 	client2 "github.com/skevetter/devpod/pkg/client"
 	config2 "github.com/skevetter/devpod/pkg/devcontainer/config"
@@ -68,7 +69,7 @@ func ExecuteCommand(
 		log.WithFields(logrus.Fields{"command": sshCommand}).Debug("inject and run command")
 		err := agentInject(ctx, sshCommand, sshTunnelStdinReader, sshTunnelStdoutWriter, writer)
 		if err != nil && !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "signal: ") {
-			errChan <- fmt.Errorf("executing agent command %w", err)
+			errChan <- fmt.Errorf("executing agent command: %w", err)
 		} else {
 			errChan <- nil
 		}
@@ -102,7 +103,7 @@ func ExecuteCommand(
 		// start ssh client as root / default user
 		sshClient, err := devssh.StdioClient(sshTunnelStdoutReader, sshTunnelStdinWriter, false)
 		if err != nil {
-			errChan <- fmt.Errorf("create ssh client %w", err)
+			errChan <- fmt.Errorf("create ssh client: %w", err)
 			return
 		}
 		log.Debugf("SSH client created")
@@ -145,11 +146,11 @@ func ExecuteCommand(
 			log.WithFields(logrus.Fields{"socket": identityAgent}).Debug("forwarding SSH agent")
 			err = devsshagent.ForwardToRemote(sshClient, identityAgent)
 			if err != nil {
-				errChan <- fmt.Errorf("forward agent %w", err)
+				errChan <- fmt.Errorf("forward agent: %w", err)
 			}
 			err = devsshagent.RequestAgentForwarding(sess)
 			if err != nil {
-				errChan <- fmt.Errorf("request agent forwarding failed %w", err)
+				errChan <- fmt.Errorf("request agent forwarding failed: %w", err)
 			}
 		}
 
@@ -163,7 +164,7 @@ func ExecuteCommand(
 			if out := streamer.ErrorOutput(); out != "" {
 				errChan <- fmt.Errorf("run agent command failed: %w\n%s", err, out)
 			} else {
-				errChan <- fmt.Errorf("run agent command failed %w", err)
+				errChan <- fmt.Errorf("run agent command failed: %w", err)
 			}
 		} else {
 			errChan <- nil
@@ -172,7 +173,7 @@ func ExecuteCommand(
 
 	result, err := tunnelServerFunc(cancelCtx, gRPCConnStdinWriter, gRPCConnStdoutReader)
 	if err != nil {
-		return nil, fmt.Errorf("start tunnel server %w", err)
+		return nil, fmt.Errorf("start tunnel server: %w", err)
 	}
 
 	log.Debug("tunnel server started, waiting for command completion")

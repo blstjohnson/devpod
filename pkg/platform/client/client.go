@@ -22,7 +22,6 @@ import (
 	"github.com/loft-sh/api/v4/pkg/auth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	perrors "github.com/pkg/errors"
 	"github.com/skevetter/devpod/pkg/platform/kube"
 	"github.com/skevetter/devpod/pkg/platform/project"
 	"github.com/skevetter/devpod/pkg/util"
@@ -127,7 +126,7 @@ type client struct {
 func (c *client) RefreshSelf(ctx context.Context) error {
 	managementClient, err := c.Management()
 	if err != nil {
-		return fmt.Errorf("create mangement client %w", err)
+		return fmt.Errorf("create mangement client: %w", err)
 	}
 
 	c.self, err = managementClient.Loft().ManagementV1().Selves().Create(ctx, &managementv1.Self{}, metav1.CreateOptions{})
@@ -153,18 +152,18 @@ func (c *client) Self() *managementv1.Self {
 func (c *client) Logout(ctx context.Context) error {
 	managementClient, err := c.Management()
 	if err != nil {
-		return fmt.Errorf("create management client %w", err)
+		return fmt.Errorf("create management client: %w", err)
 	}
 
 	self, err := managementClient.Loft().ManagementV1().Selves().Create(ctx, &managementv1.Self{}, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("get self %w", err)
+		return fmt.Errorf("get self: %w", err)
 	}
 
 	if self.Status.AccessKey != "" && self.Status.AccessKeyType == storagev1.AccessKeyTypeLogin {
 		err = managementClient.Loft().ManagementV1().OwnedAccessKeys().Delete(ctx, self.Status.AccessKey, metav1.DeleteOptions{})
 		if err != nil {
-			return fmt.Errorf("delete access key %w", err)
+			return fmt.Errorf("delete access key: %w", err)
 		}
 	}
 
@@ -206,7 +205,7 @@ func (c *client) Save() error {
 		return nil
 	}
 	if c.config == nil {
-		return perrors.New("no config to write")
+		return errors.New("no config to write")
 	}
 	if c.config.Kind == "" {
 		c.config.Kind = "Config"
@@ -270,13 +269,14 @@ func (c *client) Version() (*auth.Version, error) {
 
 	raw, err := restClient.CoreV1().RESTClient().Get().RequestURI("/version").DoRaw(context.Background())
 	if err != nil {
-		return nil, perrors.New(fmt.Sprintf("%s\n\nYou may need to login again via `%s login %s --insecure` to allow self-signed certificates\n", err.Error(), os.Args[0], restConfig.Host))
+		// User may need to login using --insecure flag to trust self-signed certificates
+		return nil, fmt.Errorf("get version: %w", err)
 	}
 
 	version := &auth.Version{}
 	err = json.Unmarshal(raw, version)
 	if err != nil {
-		return nil, fmt.Errorf("parse version response %w", err)
+		return nil, fmt.Errorf("parse version response: %w", err)
 	}
 
 	return version, nil
@@ -360,7 +360,7 @@ func (c *client) LoginWithAccessKey(host, accessKey string, insecure bool, force
 	// verify the connection works
 	managementClient, err := c.Management()
 	if err != nil {
-		return fmt.Errorf("create management client %w", err)
+		return fmt.Errorf("create management client: %w", err)
 	}
 
 	// try to get self
@@ -374,7 +374,7 @@ func (c *client) LoginWithAccessKey(host, accessKey string, insecure bool, force
 			}
 		}
 
-		return perrors.Errorf("error logging in: %v", err)
+		return fmt.Errorf("error logging in: %w", err)
 	}
 
 	return c.Save()
@@ -391,7 +391,7 @@ func VerifyVersion(baseClient Client) error {
 
 	backendMajor, err := strconv.Atoi(v.Major)
 	if err != nil {
-		return fmt.Errorf("parse major version string %w", err)
+		return fmt.Errorf("parse major version string: %w", err)
 	}
 
 	cliVersionStr := version.GetVersion()
@@ -416,9 +416,9 @@ func VerifyVersion(baseClient Client) error {
 
 func (c *client) restConfig(hostSuffix string) (*rest.Config, error) {
 	if c.config == nil {
-		return nil, perrors.New("no config loaded")
+		return nil, errors.New("no config loaded")
 	} else if c.config.Host == "" || c.config.AccessKey == "" {
-		return nil, perrors.New(fmt.Sprintf("not logged in, please make sure you have run '%s' to create one or '%s [%s]' if one already exists", "devpod pro start", "devpod pro login", "devpod-pro-url"))
+		return nil, errors.New("not logged in, run 'devpod pro start' or 'devpod pro login [devpod-pro-url]'")
 	}
 
 	// build a rest config

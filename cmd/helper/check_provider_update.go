@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/blang/semver/v4"
-	"github.com/pkg/errors"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/provider"
@@ -104,11 +104,11 @@ func (cmd *CheckProviderUpdateCmd) Run(ctx context.Context, devPodConfig *config
 func loadLatestProvider(providerSourceRaw string, log log.Logger) (*provider.ProviderConfig, error) {
 	providerRaw, _, err := workspace.ResolveProvider(providerSourceRaw, log)
 	if err != nil {
-		return nil, fmt.Errorf("resolve provider %w", err)
+		return nil, fmt.Errorf("resolve provider: %w", err)
 	}
 	providerConfig, err := provider.ParseProvider(bytes.NewReader(providerRaw))
 	if err != nil {
-		return nil, fmt.Errorf("parse provider %w", err)
+		return nil, fmt.Errorf("parse provider: %w", err)
 	}
 
 	return providerConfig, nil

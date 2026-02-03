@@ -15,7 +15,6 @@ import (
 	"github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/devpod/pkg/util"
 
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -30,7 +29,7 @@ var keyLock sync.Mutex
 func rsaKeyGen() (privateKey string, publicKey string, err error) {
 	privateKeyRaw, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return "", "", errors.Errorf("generate private key: %v", err)
+		return "", "", fmt.Errorf("generate private key: %w", err)
 	}
 
 	return generateKeys(pem.Block{
@@ -134,24 +133,24 @@ func GetPrivateKeyRawBase(dir string) ([]byte, error) {
 	if err != nil {
 		pubKey, privateKey, err := makeSSHKeyPair()
 		if err != nil {
-			return nil, fmt.Errorf("generate key pair %w", err)
+			return nil, fmt.Errorf("generate key pair: %w", err)
 		}
 
 		err = os.WriteFile(publicKeyFile, []byte(pubKey), 0644)
 		if err != nil {
-			return nil, fmt.Errorf("write public ssh key %w", err)
+			return nil, fmt.Errorf("write public ssh key: %w", err)
 		}
 
 		err = os.WriteFile(privateKeyFile, []byte(privateKey), 0600)
 		if err != nil {
-			return nil, fmt.Errorf("write private ssh key %w", err)
+			return nil, fmt.Errorf("write private ssh key: %w", err)
 		}
 	}
 
 	// read private key
 	out, err := os.ReadFile(privateKeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("read private ssh key %w", err)
+		return nil, fmt.Errorf("read private ssh key: %w", err)
 	}
 
 	return out, nil
@@ -172,19 +171,19 @@ func GetHostKeyBase(dir string) (string, error) {
 	if err != nil {
 		privateKey, err := makeHostKey()
 		if err != nil {
-			return "", fmt.Errorf("generate host key %w", err)
+			return "", fmt.Errorf("generate host key: %w", err)
 		}
 
 		err = os.WriteFile(hostKeyFile, []byte(privateKey), 0600)
 		if err != nil {
-			return "", fmt.Errorf("write host key %w", err)
+			return "", fmt.Errorf("write host key: %w", err)
 		}
 	}
 
 	// read public key
 	out, err := os.ReadFile(hostKeyFile)
 	if err != nil {
-		return "", fmt.Errorf("read host ssh key %w", err)
+		return "", fmt.Errorf("read host ssh key: %w", err)
 	}
 
 	return base64.StdEncoding.EncodeToString(out), nil
@@ -206,24 +205,24 @@ func GetPublicKeyBase(dir string) (string, error) {
 	if err != nil {
 		pubKey, privateKey, err := makeSSHKeyPair()
 		if err != nil {
-			return "", fmt.Errorf("generate key pair %w", err)
+			return "", fmt.Errorf("generate key pair: %w", err)
 		}
 
 		err = os.WriteFile(publicKeyFile, []byte(pubKey), 0644)
 		if err != nil {
-			return "", fmt.Errorf("write public ssh key %w", err)
+			return "", fmt.Errorf("write public ssh key: %w", err)
 		}
 
 		err = os.WriteFile(privateKeyFile, []byte(privateKey), 0600)
 		if err != nil {
-			return "", fmt.Errorf("write private ssh key %w", err)
+			return "", fmt.Errorf("write private ssh key: %w", err)
 		}
 	}
 
 	// read public key
 	out, err := os.ReadFile(publicKeyFile)
 	if err != nil {
-		return "", fmt.Errorf("read public ssh key %w", err)
+		return "", fmt.Errorf("read public ssh key: %w", err)
 	}
 
 	return base64.StdEncoding.EncodeToString(out), nil
