@@ -594,7 +594,7 @@ func SwitchProvider(
 
 	status, err := client.Status(ctx, client2.StatusOptions{ContainerStatus: true})
 	if err != nil {
-		return fmt.Errorf("failed to get sataus for workspace %s: %w", workspace.ID, err)
+		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
 	}
 	if status != client2.StatusStopped && status != client2.StatusNotFound {
 		return fmt.Errorf(`workspace %s is in state %s and cannot be switched.
