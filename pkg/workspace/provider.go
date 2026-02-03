@@ -597,7 +597,9 @@ func SwitchProvider(
 		return fmt.Errorf("failed to get sataus for workspace %s: %w", workspace.ID, err)
 	}
 	if status != client2.StatusStopped && status != client2.StatusNotFound {
-		return fmt.Errorf("workspace %s is in state %s and cannot be switched. Only stopped or non-existent workspaces can be switched", workspace.ID, status)
+		return fmt.Errorf(`workspace %s is in state %s and cannot be switched.
+			Only stopped or non-existent workspaces can be switched`,
+			workspace.ID, status)
 	}
 
 	defer client.Unlock()
