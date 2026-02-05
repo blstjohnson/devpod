@@ -2,17 +2,17 @@ package options
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"os"
 	"reflect"
 	"strings"
 
 	"github.com/skevetter/devpod/pkg/agent"
-	"github.com/skevetter/devpod/pkg/binaries"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/options/resolver"
 
-	provider2 "github.com/skevetter/devpod/pkg/provider"
+	"github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/devpod/pkg/types"
 	"github.com/skevetter/log"
 )
@@ -20,13 +20,16 @@ import (
 func ResolveAndSaveOptionsMachine(
 	ctx context.Context,
 	devConfig *config.Config,
-	provider *provider2.ProviderConfig,
-	originalMachine *provider2.Machine,
+	providerConfig *provider.ProviderConfig,
+	originalMachine *provider.Machine,
 	userOptions map[string]string,
 	log log.Logger,
-) (*provider2.Machine, error) {
+) (*provider.Machine, error) {
+	if originalMachine == nil {
+		return nil, fmt.Errorf("originalMachine cannot be nil")
+	}
 	// reload config
-	machine, err := provider2.LoadMachineConfig(originalMachine.Context, originalMachine.ID)
+	machine, err := provider.LoadMachineConfig(originalMachine.Context, originalMachine.ID)
 	if err != nil {
 		return originalMachine, err
 	}
@@ -38,7 +41,7 @@ func ResolveAndSaveOptionsMachine(
 	}
 
 	// get binary paths
-	binaryPaths, err := binaries.GetBinaries(devConfig.DefaultContext, provider)
+	binaryPaths, err := provider.GetBinaries(devConfig.DefaultContext, providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -46,28 +49,34 @@ func ResolveAndSaveOptionsMachine(
 	// resolve options
 	resolvedOptions, _, err := resolver.New(
 		userOptions,
-		provider2.Merge(provider2.ToOptionsMachine(machine), binaryPaths),
+		provider.Merge(provider.ToOptionsMachine(machine), binaryPaths),
 		log,
 		resolver.WithResolveLocal(),
 	).Resolve(
 		ctx,
-		devConfig.DynamicProviderOptionDefinitions(provider.Name),
-		provider.Options,
-		provider2.CombineOptions(nil, machine, devConfig.ProviderOptions(provider.Name)),
+		devConfig.DynamicProviderOptionDefinitions(providerConfig.Name),
+		providerConfig.Options,
+		provider.CombineOptions(nil, machine, devConfig.ProviderOptions(providerConfig.Name)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// remove global options
-	filterResolvedOptions(resolvedOptions, beforeConfigOptions, devConfig.ProviderOptions(provider.Name), provider.Options, userOptions)
+	filterResolvedOptions(
+		resolvedOptions,
+		beforeConfigOptions,
+		devConfig.ProviderOptions(providerConfig.Name),
+		providerConfig.Options,
+		userOptions,
+	)
 
 	// save machine config
 	if machine != nil {
 		machine.Provider.Options = resolvedOptions
 
 		if !reflect.DeepEqual(beforeConfigOptions, machine.Provider.Options) {
-			err = provider2.SaveMachineConfig(machine)
+			err = provider.SaveMachineConfig(machine)
 			if err != nil {
 				return machine, err
 			}
@@ -80,26 +89,29 @@ func ResolveAndSaveOptionsMachine(
 func ResolveAndSaveOptionsWorkspace(
 	ctx context.Context,
 	devConfig *config.Config,
-	provider *provider2.ProviderConfig,
-	originalWorkspace *provider2.Workspace,
+	providerConfig *provider.ProviderConfig,
+	originalWorkspace *provider.Workspace,
 	userOptions map[string]string,
 	log log.Logger,
 	options ...resolver.Option,
-) (*provider2.Workspace, error) {
+) (*provider.Workspace, error) {
+	if originalWorkspace == nil {
+		return nil, fmt.Errorf("originalWorkspace cannot be nil")
+	}
 	// reload config
-	workspace, err := provider2.LoadWorkspaceConfig(originalWorkspace.Context, originalWorkspace.ID)
+	workspace, err := provider.LoadWorkspaceConfig(originalWorkspace.Context, originalWorkspace.ID)
 	if err != nil {
 		return originalWorkspace, err
 	}
-
-	// resolve devconfig options
-	var beforeConfigOptions map[string]config.OptionValue
-	if workspace != nil {
-		beforeConfigOptions = workspace.Provider.Options
+	if workspace == nil {
+		return nil, fmt.Errorf("failed to load workspace config: workspace not found")
 	}
 
+	// resolve devconfig options
+	beforeConfigOptions := workspace.Provider.Options
+
 	// get binary paths
-	binaryPaths, err := binaries.GetBinaries(devConfig.DefaultContext, provider)
+	binaryPaths, err := provider.GetBinaries(devConfig.DefaultContext, providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -108,52 +120,44 @@ func ResolveAndSaveOptionsWorkspace(
 	// resolve options
 	resolvedOptions, _, err := resolver.New(
 		userOptions,
-		provider2.Merge(provider2.ToOptionsWorkspace(workspace), binaryPaths),
+		provider.Merge(provider.ToOptionsWorkspace(workspace), binaryPaths),
 		log,
 		options...,
 	).Resolve(
 		ctx,
-		devConfig.DynamicProviderOptionDefinitions(provider.Name),
-		provider.Options,
-		provider2.CombineOptions(workspace, nil, devConfig.ProviderOptions(provider.Name)),
+		devConfig.DynamicProviderOptionDefinitions(providerConfig.Name),
+		providerConfig.Options,
+		provider.CombineOptions(workspace, nil, devConfig.ProviderOptions(providerConfig.Name)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// remove global options
-	filterResolvedOptions(resolvedOptions, beforeConfigOptions, devConfig.ProviderOptions(provider.Name), provider.Options, userOptions)
+	filterResolvedOptions(
+		resolvedOptions,
+		beforeConfigOptions,
+		devConfig.ProviderOptions(providerConfig.Name),
+		providerConfig.Options,
+		userOptions,
+	)
 
 	// save workspace config
-	if workspace != nil {
-		workspace.Provider.Options = resolvedOptions
-
-		if !reflect.DeepEqual(beforeConfigOptions, workspace.Provider.Options) {
-			err = provider2.SaveWorkspaceConfig(workspace)
-			if err != nil {
-				return workspace, err
-			}
+	workspace.Provider.Options = resolvedOptions
+	if !reflect.DeepEqual(beforeConfigOptions, workspace.Provider.Options) {
+		err = provider.SaveWorkspaceConfig(workspace)
+		if err != nil {
+			return workspace, err
 		}
 	}
 
 	return workspace, nil
 }
 
-func ResolveAndSaveOptionsProxy(
-	ctx context.Context,
-	devConfig *config.Config,
-	provider *provider2.ProviderConfig,
-	originalWorkspace *provider2.Workspace,
-	userOptions map[string]string,
-	log log.Logger,
-) (*provider2.Workspace, error) {
-	return ResolveAndSaveOptionsWorkspace(ctx, devConfig, provider, originalWorkspace, userOptions, log, resolver.WithResolveSubOptions())
-}
-
 func ResolveOptions(
 	ctx context.Context,
 	devConfig *config.Config,
-	provider *provider2.ProviderConfig,
+	providerConfig *provider.ProviderConfig,
 	userOptions map[string]string,
 	skipRequired bool,
 	skipSubOptions bool,
@@ -161,7 +165,7 @@ func ResolveOptions(
 	log log.Logger,
 ) (*config.Config, error) {
 	// get binary paths
-	binaryPaths, err := binaries.GetBinaries(devConfig.DefaultContext, provider)
+	binaryPaths, err := provider.GetBinaries(devConfig.DefaultContext, providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +181,7 @@ func ResolveOptions(
 	// create new resolver
 	resolve := resolver.New(
 		userOptions,
-		provider2.Merge(provider2.GetBaseEnvironment(devConfig.DefaultContext, provider.Name), binaryPaths),
+		provider.Merge(provider.GetBaseEnvironment(devConfig.DefaultContext, providerConfig.Name), binaryPaths),
 		log,
 		resolverOpts...,
 	)
@@ -186,8 +190,8 @@ func ResolveOptions(
 	resolvedOptionValues, dynamicOptionDefinitions, err := resolve.Resolve(
 		ctx,
 		nil,
-		provider.Options,
-		devConfig.ProviderOptions(provider.Name),
+		providerConfig.Options,
+		devConfig.ProviderOptions(providerConfig.Name),
 	)
 	if err != nil {
 		return nil, err
@@ -199,66 +203,120 @@ func ResolveOptions(
 		if devConfig.Current().Providers == nil {
 			devConfig.Current().Providers = map[string]*config.ProviderConfig{}
 		}
-		if devConfig.Current().Providers[provider.Name] == nil {
-			devConfig.Current().Providers[provider.Name] = &config.ProviderConfig{}
+		if devConfig.Current().Providers[providerConfig.Name] == nil {
+			devConfig.Current().Providers[providerConfig.Name] = &config.ProviderConfig{}
 		}
-		devConfig.Current().Providers[provider.Name].Options = map[string]config.OptionValue{}
-		maps.Copy(devConfig.Current().Providers[provider.Name].Options, resolvedOptionValues)
 
-		devConfig.Current().Providers[provider.Name].DynamicOptions = config.OptionDefinitions{}
-		maps.Copy(devConfig.Current().Providers[provider.Name].DynamicOptions, dynamicOptionDefinitions)
+		providerCfg := devConfig.Current().Providers[providerConfig.Name]
+		providerCfg.Options = map[string]config.OptionValue{}
+		maps.Copy(providerCfg.Options, resolvedOptionValues)
+
+		providerCfg.DynamicOptions = config.OptionDefinitions{}
+		maps.Copy(providerCfg.DynamicOptions, dynamicOptionDefinitions)
 		if singleMachine != nil {
-			devConfig.Current().Providers[provider.Name].SingleMachine = *singleMachine
+			providerCfg.SingleMachine = *singleMachine
 		}
 	}
 
 	return devConfig, nil
 }
 
-func ResolveAgentConfig(devConfig *config.Config, provider *provider2.ProviderConfig, workspace *provider2.Workspace, machine *provider2.Machine) provider2.ProviderAgentConfig {
-	// fill in agent config
-	options := provider2.ToOptions(workspace, machine, devConfig.ProviderOptions(provider.Name))
-	agentConfig := provider.Agent
+// ResolveAgentConfig resolves and returns the complete agent configuration for a provider.
+// It merges configuration from the provider, workspace, machine, and devConfig, resolving
+// all dynamic values and setting appropriate defaults for agent paths, Docker settings,
+// Kubernetes settings, and credentials.
+//
+// Parameters:
+//   - devConfig: The DevPod configuration containing global settings
+//   - providerConfig: The provider's configuration
+//   - workspace: The workspace configuration (can be nil for machine-only operations)
+//   - machine: The machine configuration (can be nil for workspace-only operations)
+//
+// Returns a fully resolved ProviderAgentConfig ready for use by the agent.
+func ResolveAgentConfig(
+	devConfig *config.Config,
+	providerConfig *provider.ProviderConfig,
+	workspace *provider.Workspace,
+	machine *provider.Machine,
+) provider.ProviderAgentConfig {
+	if providerConfig == nil || devConfig == nil {
+		return provider.ProviderAgentConfig{}
+	}
+	options := provider.ToOptions(workspace, machine, devConfig.ProviderOptions(providerConfig.Name))
+	agentConfig := providerConfig.Agent
+
+	resolveAgentBaseConfig(&agentConfig, options, devConfig)
+	resolveAgentDockerConfig(&agentConfig, options)
+	resolveAgentKubernetesConfig(&agentConfig, options)
+	resolveAgentPathAndURL(&agentConfig, options, devConfig)
+	resolveAgentCredentials(&agentConfig, options, devConfig)
+
+	return agentConfig
+}
+
+func resolveAgentBaseConfig(
+	agentConfig *provider.ProviderAgentConfig,
+	options map[string]string,
+	devConfig *config.Config,
+) {
 	agentConfig.Dockerless.Image = resolver.ResolveDefaultValue(agentConfig.Dockerless.Image, options)
-	agentConfig.Dockerless.Disabled = types.StrBool(resolver.ResolveDefaultValue(string(agentConfig.Dockerless.Disabled), options))
+	agentConfig.Dockerless.Disabled = types.StrBool(
+		resolver.ResolveDefaultValue(string(agentConfig.Dockerless.Disabled), options),
+	)
 	agentConfig.Dockerless.IgnorePaths = resolver.ResolveDefaultValue(agentConfig.Dockerless.IgnorePaths, options)
 	agentConfig.Dockerless.RegistryCache = devConfig.ContextOption(config.ContextOptionRegistryCache)
 	agentConfig.Driver = resolver.ResolveDefaultValue(agentConfig.Driver, options)
 	agentConfig.Local = types.StrBool(resolver.ResolveDefaultValue(string(agentConfig.Local), options))
+}
 
-	// docker driver
+func resolveAgentDockerConfig(agentConfig *provider.ProviderAgentConfig, options map[string]string) {
 	agentConfig.Docker.Path = resolver.ResolveDefaultValue(agentConfig.Docker.Path, options)
 	agentConfig.Docker.Builder = resolver.ResolveDefaultValue(agentConfig.Docker.Builder, options)
-	agentConfig.Docker.Install = types.StrBool(resolver.ResolveDefaultValue(string(agentConfig.Docker.Install), options))
+	agentConfig.Docker.Install = types.StrBool(
+		resolver.ResolveDefaultValue(string(agentConfig.Docker.Install), options),
+	)
 	agentConfig.Docker.Env = resolver.ResolveDefaultValues(agentConfig.Docker.Env, options)
+}
 
-	// kubernetes driver
-	agentConfig.Kubernetes.KubernetesContext = resolver.ResolveDefaultValue(agentConfig.Kubernetes.KubernetesContext, options)
-	agentConfig.Kubernetes.KubernetesConfig = resolver.ResolveDefaultValue(agentConfig.Kubernetes.KubernetesConfig, options)
-	agentConfig.Kubernetes.KubernetesNamespace = resolver.ResolveDefaultValue(agentConfig.Kubernetes.KubernetesNamespace, options)
-	agentConfig.Kubernetes.Architecture = resolver.ResolveDefaultValue(agentConfig.Kubernetes.Architecture, options)
-	agentConfig.Kubernetes.InactivityTimeout = resolver.ResolveDefaultValue(agentConfig.Kubernetes.InactivityTimeout, options)
-	agentConfig.Kubernetes.StorageClass = resolver.ResolveDefaultValue(agentConfig.Kubernetes.StorageClass, options)
-	agentConfig.Kubernetes.PvcAccessMode = resolver.ResolveDefaultValue(agentConfig.Kubernetes.PvcAccessMode, options)
-	agentConfig.Kubernetes.PvcAnnotations = resolver.ResolveDefaultValue(agentConfig.Kubernetes.PvcAnnotations, options)
-	agentConfig.Kubernetes.NodeSelector = resolver.ResolveDefaultValue(agentConfig.Kubernetes.NodeSelector, options)
-	agentConfig.Kubernetes.Resources = resolver.ResolveDefaultValue(agentConfig.Kubernetes.Resources, options)
-	agentConfig.Kubernetes.WorkspaceVolumeMount = resolver.ResolveDefaultValue(agentConfig.Kubernetes.WorkspaceVolumeMount, options)
-	agentConfig.Kubernetes.PodManifestTemplate = resolver.ResolveDefaultValue(agentConfig.Kubernetes.PodManifestTemplate, options)
-	agentConfig.Kubernetes.Labels = resolver.ResolveDefaultValue(agentConfig.Kubernetes.Labels, options)
-	agentConfig.Kubernetes.StrictSecurity = resolver.ResolveDefaultValue(agentConfig.Kubernetes.StrictSecurity, options)
-	agentConfig.Kubernetes.CreateNamespace = resolver.ResolveDefaultValue(agentConfig.Kubernetes.CreateNamespace, options)
-	agentConfig.Kubernetes.ClusterRole = resolver.ResolveDefaultValue(agentConfig.Kubernetes.ClusterRole, options)
-	agentConfig.Kubernetes.ServiceAccount = resolver.ResolveDefaultValue(agentConfig.Kubernetes.ServiceAccount, options)
-	agentConfig.Kubernetes.PodTimeout = resolver.ResolveDefaultValue(agentConfig.Kubernetes.PodTimeout, options)
-	agentConfig.Kubernetes.KubernetesPullSecretsEnabled = resolver.ResolveDefaultValue(agentConfig.Kubernetes.KubernetesPullSecretsEnabled, options)
-	agentConfig.Kubernetes.DiskSize = resolver.ResolveDefaultValue(agentConfig.Kubernetes.DiskSize, options)
+func resolveAgentKubernetesConfig(agentConfig *provider.ProviderAgentConfig, options map[string]string) {
+	k8s := &agentConfig.Kubernetes
+	k8s.KubernetesContext = resolver.ResolveDefaultValue(k8s.KubernetesContext, options)
+	k8s.KubernetesConfig = resolver.ResolveDefaultValue(k8s.KubernetesConfig, options)
+	k8s.KubernetesNamespace = resolver.ResolveDefaultValue(k8s.KubernetesNamespace, options)
+	k8s.Architecture = resolver.ResolveDefaultValue(k8s.Architecture, options)
+	k8s.InactivityTimeout = resolver.ResolveDefaultValue(k8s.InactivityTimeout, options)
+	k8s.StorageClass = resolver.ResolveDefaultValue(k8s.StorageClass, options)
+	k8s.PvcAccessMode = resolver.ResolveDefaultValue(k8s.PvcAccessMode, options)
+	k8s.PvcAnnotations = resolver.ResolveDefaultValue(k8s.PvcAnnotations, options)
+	k8s.NodeSelector = resolver.ResolveDefaultValue(k8s.NodeSelector, options)
+	k8s.Resources = resolver.ResolveDefaultValue(k8s.Resources, options)
+	k8s.WorkspaceVolumeMount = resolver.ResolveDefaultValue(k8s.WorkspaceVolumeMount, options)
+	k8s.PodManifestTemplate = resolver.ResolveDefaultValue(k8s.PodManifestTemplate, options)
+	k8s.Labels = resolver.ResolveDefaultValue(k8s.Labels, options)
+	k8s.StrictSecurity = resolver.ResolveDefaultValue(k8s.StrictSecurity, options)
+	k8s.CreateNamespace = resolver.ResolveDefaultValue(k8s.CreateNamespace, options)
+	k8s.ClusterRole = resolver.ResolveDefaultValue(k8s.ClusterRole, options)
+	k8s.ServiceAccount = resolver.ResolveDefaultValue(k8s.ServiceAccount, options)
+	k8s.PodTimeout = resolver.ResolveDefaultValue(k8s.PodTimeout, options)
+	k8s.KubernetesPullSecretsEnabled = resolver.ResolveDefaultValue(k8s.KubernetesPullSecretsEnabled, options)
+	k8s.DiskSize = resolver.ResolveDefaultValue(k8s.DiskSize, options)
+}
 
+func resolveAgentPathAndURL(
+	agentConfig *provider.ProviderAgentConfig,
+	options map[string]string,
+	devConfig *config.Config,
+) {
 	agentConfig.DataPath = resolver.ResolveDefaultValue(agentConfig.DataPath, options)
 	agentConfig.Path = resolver.ResolveDefaultValue(agentConfig.Path, options)
-	if agentConfig.Path == "" && agentConfig.Local == "true" {
-		agentConfig.Path, _ = os.Executable()
-	} else if agentConfig.Path == "" {
+	if agentConfig.Path == "" && strings.EqualFold(string(agentConfig.Local), "true") {
+		// Try to use the current executable path for local agent
+		// Error is silently handled as we have a fallback to RemoteDevPodHelperLocation
+		if execPath, err := os.Executable(); err == nil {
+			agentConfig.Path = execPath
+		}
+	}
+	if agentConfig.Path == "" {
 		agentConfig.Path = agent.RemoteDevPodHelperLocation
 	}
 	agentConfig.DownloadURL = resolver.ResolveDefaultValue(agentConfig.DownloadURL, options)
@@ -267,18 +325,30 @@ func ResolveAgentConfig(devConfig *config.Config, provider *provider2.ProviderCo
 	}
 	agentConfig.Timeout = resolver.ResolveDefaultValue(agentConfig.Timeout, options)
 	agentConfig.ContainerTimeout = resolver.ResolveDefaultValue(agentConfig.ContainerTimeout, options)
-	agentConfig.InjectGitCredentials = types.StrBool(resolver.ResolveDefaultValue(string(agentConfig.InjectGitCredentials), options))
+}
+
+func resolveAgentCredentials(
+	agentConfig *provider.ProviderAgentConfig,
+	options map[string]string,
+	devConfig *config.Config,
+) {
+	agentConfig.InjectGitCredentials = types.StrBool(
+		resolver.ResolveDefaultValue(string(agentConfig.InjectGitCredentials), options),
+	)
 	if devConfig.ContextOption(config.ContextOptionSSHInjectGitCredentials) != "" {
-		agentConfig.InjectGitCredentials = types.StrBool(devConfig.ContextOption(config.ContextOptionSSHInjectGitCredentials))
+		agentConfig.InjectGitCredentials = types.StrBool(
+			devConfig.ContextOption(config.ContextOptionSSHInjectGitCredentials),
+		)
 	}
-	agentConfig.InjectDockerCredentials = types.StrBool(resolver.ResolveDefaultValue(string(agentConfig.InjectDockerCredentials), options))
+	agentConfig.InjectDockerCredentials = types.StrBool(
+		resolver.ResolveDefaultValue(string(agentConfig.InjectDockerCredentials), options),
+	)
 	if dockerCredOpt := devConfig.ContextOption(config.ContextOptionSSHInjectDockerCredentials); dockerCredOpt != "" {
 		agentConfig.InjectDockerCredentials = types.StrBool(dockerCredOpt)
 	}
-	return agentConfig
 }
 
-// resolveAgentDownloadURL resolves the agent download URL (env -> context -> default)
+// resolveAgentDownloadURL resolves the agent download URL (env -> context -> default).
 func resolveAgentDownloadURL(devConfig *config.Config) string {
 	devPodAgentURL := os.Getenv(agent.EnvDevPodAgentURL)
 	if devPodAgentURL != "" {

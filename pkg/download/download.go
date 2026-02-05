@@ -13,8 +13,31 @@ import (
 	"github.com/skevetter/log"
 )
 
+// HTTPStatusError wraps HTTP status code errors for better error handling.
+type HTTPStatusError struct {
+	StatusCode int
+	URL        string
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf(
+			"received status code %d when trying to download %s: %s",
+			e.StatusCode,
+			e.URL,
+			e.Body,
+		)
+	}
+	return fmt.Sprintf(
+		"received status code %d when trying to download %s",
+		e.StatusCode,
+		e.URL,
+	)
+}
+
 func Head(rawURL string) (int, error) {
-	req, err := http.NewRequest("HEAD", rawURL, nil)
+	req, err := http.NewRequest(http.MethodHead, rawURL, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -23,6 +46,7 @@ func Head(rawURL string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("download file: %w", err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	return resp.StatusCode, nil
 }
@@ -33,7 +57,7 @@ func File(rawURL string, log log.Logger) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("GET", rawURL, nil)
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -67,8 +91,9 @@ func File(rawURL string, log log.Logger) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download file: %w", err)
 	} else if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("received status code %d when trying to download %s", resp.StatusCode, rawURL)
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, URL: rawURL, Body: string(body)}
 	}
 
 	return resp.Body, nil
@@ -84,14 +109,29 @@ type GithubReleaseAsset struct {
 }
 
 func downloadGithubRelease(org, repo, release, file, token string) (io.ReadCloser, error) {
-	releaseURL := ""
+	var releasePath string
 	if release == "" {
-		releaseURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", org, repo)
+		releasePath = fmt.Sprintf(
+			"/repos/%s/%s/releases/latest",
+			url.PathEscape(org),
+			url.PathEscape(repo),
+		)
 	} else {
-		releaseURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/tags/%s", org, repo, release)
+		releasePath = fmt.Sprintf(
+			"/repos/%s/%s/releases/tags/%s",
+			url.PathEscape(org),
+			url.PathEscape(repo),
+			url.PathEscape(release),
+		)
 	}
 
-	req, err := http.NewRequest("GET", releaseURL, nil)
+	releaseURL := (&url.URL{
+		Scheme: "https",
+		Host:   "api.github.com",
+		Path:   releasePath,
+	}).String()
+
+	req, err := http.NewRequest(http.MethodGet, releaseURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -100,9 +140,16 @@ func downloadGithubRelease(org, repo, release, file, token string) (io.ReadClose
 	resp, err := devpodhttp.GetHTTPClient().Do(req)
 	if err != nil {
 		return nil, err
-	} else if resp.StatusCode >= 400 {
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("received status code %d when trying to reach %s", resp.StatusCode, releaseURL)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, &HTTPStatusError{
+			StatusCode: resp.StatusCode,
+			URL:        releaseURL,
+			Body:       string(body),
+		}
 	}
 
 	raw, err := io.ReadAll(resp.Body)
@@ -127,7 +174,14 @@ func downloadGithubRelease(org, repo, release, file, token string) (io.ReadClose
 		return nil, fmt.Errorf("couldn't find asset %s in github release (%s)", file, releaseURL)
 	}
 
-	req, err = http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/assets/%d", org, repo, releaseAsset.ID), nil)
+	assetPath := fmt.Sprintf("/repos/%s/%s/releases/assets/%d", url.PathEscape(org), url.PathEscape(repo), releaseAsset.ID)
+	assetURL := (&url.URL{
+		Scheme: "https",
+		Host:   "api.github.com",
+		Path:   assetPath,
+	}).String()
+
+	req, err = http.NewRequest(http.MethodGet, assetURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +191,13 @@ func downloadGithubRelease(org, repo, release, file, token string) (io.ReadClose
 	if err != nil {
 		return nil, err
 	} else if downloadResp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(downloadResp.Body, 1024))
 		_ = downloadResp.Body.Close()
-		return nil, fmt.Errorf("received status code %d when trying to reach %s", downloadResp.StatusCode, releaseURL)
+		return nil, &HTTPStatusError{
+			StatusCode: downloadResp.StatusCode,
+			URL:        assetURL,
+			Body:       string(body),
+		}
 	}
 
 	return downloadResp.Body, nil

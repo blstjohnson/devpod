@@ -16,7 +16,6 @@ import (
 	"github.com/skevetter/devpod/pkg/agent"
 	"github.com/skevetter/devpod/pkg/agent/tunnel"
 	"github.com/skevetter/devpod/pkg/agent/tunnelserver"
-	"github.com/skevetter/devpod/pkg/binaries"
 	"github.com/skevetter/devpod/pkg/client/clientimplementation"
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/credentials"
@@ -27,7 +26,7 @@ import (
 	"github.com/skevetter/devpod/pkg/dockercredentials"
 	"github.com/skevetter/devpod/pkg/dockerinstall"
 	"github.com/skevetter/devpod/pkg/extract"
-	provider2 "github.com/skevetter/devpod/pkg/provider"
+	"github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/devpod/pkg/util"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
@@ -75,13 +74,12 @@ func (cmd *UpCmd) Run(ctx context.Context) error {
 	cancelCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	tunnelClient, logger, credentialsDir, err := initWorkspace(
-		cancelCtx,
-		cancel,
-		workspaceInfo,
-		cmd.Debug,
-		cmd.shouldInstallDaemon(workspaceInfo),
-	)
+	tunnelClient, logger, credentialsDir, err := initWorkspace(initWorkspaceParams{
+		ctx:                 cancelCtx,
+		workspaceInfo:       workspaceInfo,
+		debug:               cmd.Debug,
+		shouldInstallDaemon: cmd.shouldInstallDaemon(workspaceInfo),
+	})
 	defer cmd.cleanupCredentials(credentialsDir)
 	if err != nil {
 		return cmd.handleInitError(err, workspaceInfo, logger)
@@ -94,10 +92,10 @@ func (cmd *UpCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func (cmd *UpCmd) loadWorkspaceInfo(ctx context.Context) (*provider2.AgentWorkspaceInfo, error) {
+func (cmd *UpCmd) loadWorkspaceInfo(ctx context.Context) (*provider.AgentWorkspaceInfo, error) {
 	shouldExit, workspaceInfo, err := agent.WriteWorkspaceInfoAndDeleteOld(
 		cmd.WorkspaceInfo,
-		func(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
+		func(workspaceInfo *provider.AgentWorkspaceInfo, log log.Logger) error {
 			return deleteWorkspace(ctx, workspaceInfo, log)
 		},
 		log.Default.ErrorStreamOnly(),
@@ -111,15 +109,15 @@ func (cmd *UpCmd) loadWorkspaceInfo(ctx context.Context) (*provider2.AgentWorksp
 	return workspaceInfo, nil
 }
 
-func (cmd *UpCmd) shouldPreventDaemonShutdown(workspaceInfo *provider2.AgentWorkspaceInfo) bool {
+func (cmd *UpCmd) shouldPreventDaemonShutdown(workspaceInfo *provider.AgentWorkspaceInfo) bool {
 	return !workspaceInfo.CLIOptions.Platform.Enabled
 }
 
-func (cmd *UpCmd) shouldInstallDaemon(workspaceInfo *provider2.AgentWorkspaceInfo) bool {
+func (cmd *UpCmd) shouldInstallDaemon(workspaceInfo *provider.AgentWorkspaceInfo) bool {
 	return !workspaceInfo.CLIOptions.Platform.Enabled && !workspaceInfo.CLIOptions.DisableDaemon
 }
 
-func (cmd *UpCmd) handleInitError(err error, workspaceInfo *provider2.AgentWorkspaceInfo, logger log.Logger) error {
+func (cmd *UpCmd) handleInitError(err error, workspaceInfo *provider.AgentWorkspaceInfo, logger log.Logger) error {
 	if logger == nil {
 		logger = log.Discard
 	}
@@ -141,7 +139,12 @@ func (cmd *UpCmd) cleanupCredentials(credentialsDir string) {
 	}
 }
 
-func (cmd *UpCmd) up(ctx context.Context, workspaceInfo *provider2.AgentWorkspaceInfo, tunnelClient tunnel.TunnelClient, logger log.Logger) error {
+func (cmd *UpCmd) up(
+	ctx context.Context,
+	workspaceInfo *provider.AgentWorkspaceInfo,
+	tunnelClient tunnel.TunnelClient,
+	logger log.Logger,
+) error {
 	result, err := cmd.devPodUp(ctx, workspaceInfo, logger)
 	if err != nil {
 		return err
@@ -164,7 +167,11 @@ func (cmd *UpCmd) sendResult(ctx context.Context, result *config2.Result, tunnel
 	return nil
 }
 
-func (cmd *UpCmd) devPodUp(ctx context.Context, workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) (*config2.Result, error) {
+func (cmd *UpCmd) devPodUp(
+	ctx context.Context,
+	workspaceInfo *provider.AgentWorkspaceInfo,
+	log log.Logger,
+) (*config2.Result, error) {
 	runner, err := CreateRunner(workspaceInfo, log)
 	if err != nil {
 		return nil, err
@@ -176,11 +183,11 @@ func (cmd *UpCmd) devPodUp(ctx context.Context, workspaceInfo *provider2.AgentWo
 	}, workspaceInfo.InjectTimeout)
 }
 
-func CreateRunner(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) (devcontainer.Runner, error) {
+func CreateRunner(workspaceInfo *provider.AgentWorkspaceInfo, log log.Logger) (devcontainer.Runner, error) {
 	return devcontainer.NewRunner(agent.ContainerDevPodHelperLocation, agent.DefaultAgentDownloadURL(), workspaceInfo, log)
 }
 
-func InitContentFolder(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) (bool, error) {
+func InitContentFolder(workspaceInfo *provider.AgentWorkspaceInfo, log log.Logger) (bool, error) {
 	exists, err := contentFolderExists(workspaceInfo.ContentFolder, log)
 	if err != nil {
 		return false, err
@@ -222,13 +229,13 @@ func contentFolderExists(path string, log log.Logger) (bool, error) {
 
 func createContentFolder(path string, log log.Logger) error {
 	log.WithFields(logrus.Fields{"path": path}).Debug("create content folder")
-	if err := os.MkdirAll(path, 0o777); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return fmt.Errorf("make workspace folder: %w", err)
 	}
 	return nil
 }
 
-func downloadWorkspaceBinaries(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
+func downloadWorkspaceBinaries(workspaceInfo *provider.AgentWorkspaceInfo, log log.Logger) error {
 	binariesDir, err := agent.GetAgentBinariesDir(
 		workspaceInfo.Agent.DataPath,
 		workspaceInfo.Workspace.Context,
@@ -238,7 +245,7 @@ func downloadWorkspaceBinaries(workspaceInfo *provider2.AgentWorkspaceInfo, log 
 		return fmt.Errorf("error getting workspace %s binaries dir: %w", workspaceInfo.Workspace.ID, err)
 	}
 
-	_, err = binaries.DownloadBinaries(workspaceInfo.Agent.Binaries, binariesDir, log)
+	_, err = provider.DownloadBinaries(workspaceInfo.Agent.Binaries, binariesDir, log)
 	if err != nil {
 		return fmt.Errorf("error downloading workspace %s binaries: %w", workspaceInfo.Workspace.ID, err)
 	}
@@ -248,8 +255,7 @@ func downloadWorkspaceBinaries(workspaceInfo *provider2.AgentWorkspaceInfo, log 
 
 type workspaceInitializer struct {
 	ctx                  context.Context
-	cancel               context.CancelFunc
-	workspaceInfo        *provider2.AgentWorkspaceInfo
+	workspaceInfo        *provider.AgentWorkspaceInfo
 	debug                bool
 	shouldInstallDaemon  bool
 	tunnelClient         tunnel.TunnelClient
@@ -258,49 +264,73 @@ type workspaceInitializer struct {
 	gitCredentialsHelper string
 }
 
-func initWorkspace(ctx context.Context, cancel context.CancelFunc, workspaceInfo *provider2.AgentWorkspaceInfo, debug, shouldInstallDaemon bool) (tunnel.TunnelClient, log.Logger, string, error) {
+type initWorkspaceParams struct {
+	ctx                 context.Context
+	workspaceInfo       *provider.AgentWorkspaceInfo
+	debug               bool
+	shouldInstallDaemon bool
+}
+
+func initWorkspace(params initWorkspaceParams) (tunnel.TunnelClient, log.Logger, string, error) {
 	init := &workspaceInitializer{
-		ctx:                 ctx,
-		cancel:              cancel,
-		workspaceInfo:       workspaceInfo,
-		debug:               debug,
-		shouldInstallDaemon: shouldInstallDaemon,
+		ctx:                 params.ctx,
+		workspaceInfo:       params.workspaceInfo,
+		debug:               params.debug,
+		shouldInstallDaemon: params.shouldInstallDaemon,
 	}
 
-	if err := init.initializeTunnel(); err != nil {
-		return nil, nil, "", err
-	}
-
-	if err := init.setupCredentials(); err != nil {
-		init.logger.Errorf("error retrieving docker / git credentials: %v", err)
-	}
-
-	dockerErrChan := init.installDockerAsync()
-
-	if err := init.prepareWorkspaceContent(); err != nil {
+	if err := init.initialize(); err != nil {
 		return nil, init.logger, init.dockerCredentialsDir, err
 	}
 
-	if init.shouldInstallDaemon {
-		if err := installDaemon(init.workspaceInfo, init.logger); err != nil {
-			init.logger.Errorf("install DevPod daemon: %v", err)
+	return init.tunnelClient, init.logger, init.dockerCredentialsDir, nil
+}
+
+func (w *workspaceInitializer) initialize() error {
+	if err := w.initializeTunnel(); err != nil {
+		return err
+	}
+
+	if err := w.setupCredentials(); err != nil {
+		w.logger.Warnf("failed to set up docker/git credentials (continuing without them): %v", err)
+	}
+
+	dockerErrChan := w.installDockerAsync()
+
+	if err := w.prepareWorkspaceContent(); err != nil {
+		return err
+	}
+
+	w.setupDaemonIfNeeded()
+
+	if err := w.waitForDocker(dockerErrChan); err != nil {
+		return err
+	}
+
+	w.tryConfigureDockerDaemon()
+	return nil
+}
+
+func (w *workspaceInitializer) setupDaemonIfNeeded() {
+	if w.shouldInstallDaemon {
+		if err := installDaemon(w.workspaceInfo, w.logger); err != nil {
+			w.logger.Errorf("install DevPod daemon: %v", err)
 		}
 	}
+}
 
-	if err := init.waitForDocker(dockerErrChan); err != nil {
-		return nil, nil, init.dockerCredentialsDir, err
+func (w *workspaceInitializer) tryConfigureDockerDaemon() {
+	if !w.shouldConfigureDockerDaemon() {
+		w.logger.Debug("skipping configuring docker daemon")
+		return
 	}
-
-	daemonErrChan := init.configureDockerDaemonAsync()
-	if err := <-daemonErrChan; err != nil {
-		init.logger.Warn(
+	if err := configureDockerDaemon(w.ctx, w.logger); err != nil {
+		w.logger.Warn(
 			"could not find docker daemon config file, if using the registry cache, " +
 				"please ensure the daemon is configured with containerd-snapshotter=true, " +
 				"more info at https://docs.docker.com/engine/storage/containerd/",
 		)
 	}
-
-	return init.tunnelClient, init.logger, init.dockerCredentialsDir, nil
 }
 
 func (w *workspaceInitializer) initializeTunnel() error {
@@ -362,8 +392,11 @@ func (w *workspaceInitializer) ensureDockerInstalled() (string, error) {
 	}
 
 	if dockerCmd != "docker" {
-		_, err := exec.LookPath(dockerCmd)
-		return "", err
+		path, err := exec.LookPath(dockerCmd)
+		if err != nil {
+			return "", fmt.Errorf("custom docker path %q not found: %w", dockerCmd, err)
+		}
+		return path, nil
 	}
 
 	if w.isDockerInstallDisabled() {
@@ -399,6 +432,8 @@ func (w *workspaceInitializer) prepareWorkspaceContent() error {
 	})
 }
 
+// waitForDocker waits for the Docker installation to complete.
+// Note: This function modifies workspaceInfo.Agent.Docker.Path if Docker was installed.
 func (w *workspaceInitializer) waitForDocker(resultChan <-chan dockerInstallResult) error {
 	result := <-resultChan
 
@@ -412,22 +447,6 @@ func (w *workspaceInitializer) waitForDocker(resultChan <-chan dockerInstallResu
 	}
 
 	return nil
-}
-
-func (w *workspaceInitializer) configureDockerDaemonAsync() <-chan error {
-	errChan := make(chan error, 1)
-
-	if !w.shouldConfigureDockerDaemon() {
-		w.logger.Debug("skipping configuring docker daemon")
-		errChan <- nil
-		return errChan
-	}
-
-	go func() {
-		errChan <- configureDockerDaemon(w.ctx, w.logger)
-	}()
-
-	return errChan
 }
 
 func (w *workspaceInitializer) shouldConfigureDockerDaemon() bool {
@@ -445,12 +464,14 @@ func (w *workspaceInitializer) shouldConfigureDockerDaemon() bool {
 
 type prepareWorkspaceParams struct {
 	ctx           context.Context
-	workspaceInfo *provider2.AgentWorkspaceInfo
+	workspaceInfo *provider.AgentWorkspaceInfo
 	client        tunnel.TunnelClient
 	gitHelper     string
 	log           log.Logger
 }
 
+// prepareWorkspace initializes the workspace content folder and downloads/prepares the workspace source.
+// Note: This function modifies params.workspaceInfo.ContentFolder when platform is enabled with a local folder.
 func prepareWorkspace(params prepareWorkspaceParams) error {
 	if params.workspaceInfo.CLIOptions.Platform.Enabled && params.workspaceInfo.Workspace.Source.LocalFolder != "" {
 		params.workspaceInfo.ContentFolder = agent.GetAgentWorkspaceContentDir(params.workspaceInfo.Origin)
@@ -494,7 +515,7 @@ func prepareWorkspace(params prepareWorkspaceParams) error {
 
 type prepareGitWorkspaceParams struct {
 	ctx           context.Context
-	workspaceInfo *provider2.AgentWorkspaceInfo
+	workspaceInfo *provider.AgentWorkspaceInfo
 	gitHelper     string
 	exists        bool
 	log           log.Logger
@@ -530,7 +551,12 @@ func prepareGitWorkspace(params prepareGitWorkspaceParams) error {
 	)
 }
 
-func prepareLocalWorkspace(ctx context.Context, workspaceInfo *provider2.AgentWorkspaceInfo, client tunnel.TunnelClient, log log.Logger) error {
+func prepareLocalWorkspace(
+	ctx context.Context,
+	workspaceInfo *provider.AgentWorkspaceInfo,
+	client tunnel.TunnelClient,
+	log log.Logger,
+) error {
 	if workspaceInfo.ContentFolder == workspaceInfo.Workspace.Source.LocalFolder {
 		log.Debugf("local folder %s with local provider; skip downloading", workspaceInfo.ContentFolder)
 		return nil
@@ -540,7 +566,7 @@ func prepareLocalWorkspace(ctx context.Context, workspaceInfo *provider2.AgentWo
 	return downloadLocalFolder(ctx, workspaceInfo.ContentFolder, client, log)
 }
 
-func ensureLastDevContainerJson(workspaceInfo *provider2.AgentWorkspaceInfo) error {
+func ensureLastDevContainerJson(workspaceInfo *provider.AgentWorkspaceInfo) error {
 	filePath := filepath.Join(workspaceInfo.ContentFolder, filepath.FromSlash(workspaceInfo.LastDevContainerConfig.Path))
 
 	if _, err := os.Stat(filePath); err == nil {
@@ -549,7 +575,7 @@ func ensureLastDevContainerJson(workspaceInfo *provider2.AgentWorkspaceInfo) err
 		return fmt.Errorf("error stating %s: %w", filePath, err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(filePath), err)
 	}
 
@@ -567,7 +593,7 @@ func ensureLastDevContainerJson(workspaceInfo *provider2.AgentWorkspaceInfo) err
 
 type credentialsConfig struct {
 	ctx           context.Context
-	workspaceInfo *provider2.AgentWorkspaceInfo
+	workspaceInfo *provider.AgentWorkspaceInfo
 	client        tunnel.TunnelClient
 	log           log.Logger
 }
@@ -608,7 +634,7 @@ func configureCredentials(cfg credentialsConfig) (string, string, error) {
 	return dockerCredentials, gitCredentials, nil
 }
 
-func installDaemon(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
+func installDaemon(workspaceInfo *provider.AgentWorkspaceInfo, log log.Logger) error {
 	if len(workspaceInfo.Agent.Exec.Shutdown) == 0 {
 		return nil
 	}
@@ -634,45 +660,40 @@ func prepareImage(workspaceDir, image string) error {
 	return os.WriteFile(filepath.Join(workspaceDir, ".devcontainer.json"), devcontainerConfig, 0o600)
 }
 
+// installDocker installs Docker and returns the path to the docker binary.
+// This function assumes docker does not already exist - the caller should check first.
 func installDocker(log log.Logger) (dockerPath string, err error) {
-	if !command.Exists("docker") {
-		writer := log.Writer(logrus.InfoLevel, false)
-		defer func() { _ = writer.Close() }()
-
-		log.Debug("Installing Docker")
-
-		dockerPath, err = dockerinstall.Install(writer, writer)
-	} else {
-		dockerPath = "docker"
-	}
-	return dockerPath, err
+	writer := log.Writer(logrus.InfoLevel, false)
+	defer func() { _ = writer.Close() }()
+	log.Debug("installing Docker")
+	return dockerinstall.Install(writer, writer)
 }
 
 func configureDockerDaemon(ctx context.Context, log log.Logger) error {
 	log.Info("configuring docker daemon")
 
-	daemonConfig := []byte(`{
-		"features": {
-			"containerd-snapshotter": true
-		}
-	}`)
-
-	if err := writeDockerDaemonConfig(daemonConfig); err != nil {
+	if err := mergeDockerDaemonConfig(); err != nil {
 		return err
 	}
 
 	return reloadDockerDaemon(ctx)
 }
 
-func writeDockerDaemonConfig(config []byte) error {
-	if err := tryWriteRootlessDockerConfig(config); err == nil {
+func mergeDockerDaemonConfig() error {
+	rootlessErr := tryMergeRootlessDockerConfig()
+	if rootlessErr == nil {
 		return nil
 	}
 
-	return os.WriteFile("/etc/docker/daemon.json", config, 0644)
+	rootErr := tryMergeRootDockerConfig()
+	if rootErr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("failed to write docker daemon config (rootless: %v, root: %v)", rootlessErr, rootErr)
 }
 
-func tryWriteRootlessDockerConfig(config []byte) error {
+func tryMergeRootlessDockerConfig() error {
 	homeDir, err := util.UserHomeDir()
 	if err != nil {
 		return err
@@ -683,9 +704,79 @@ func tryWriteRootlessDockerConfig(config []byte) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dockerConfigDir, "daemon.json"), config, 0644)
+	configPath := filepath.Join(dockerConfigDir, "daemon.json")
+	return mergeContainerdSnapshotterConfig(configPath)
+}
+
+func tryMergeRootDockerConfig() error {
+	return mergeContainerdSnapshotterConfig("/etc/docker/daemon.json")
+}
+
+func mergeContainerdSnapshotterConfig(configPath string) error {
+	existingConfig, err := readExistingConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	features := ensureFeaturesMap(existingConfig)
+	features["containerd-snapshotter"] = true
+
+	return writeConfig(configPath, existingConfig)
+}
+
+func readExistingConfig(configPath string) (map[string]any, error) {
+	existingConfig := make(map[string]any)
+	// #nosec G304 -- configPath is controlled by the application
+	data, err := os.ReadFile(configPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read existing config: %w", err)
+	}
+
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &existingConfig); err != nil {
+			return nil, fmt.Errorf("parse existing config: %w", err)
+		}
+	}
+	return existingConfig, nil
+}
+
+func ensureFeaturesMap(config map[string]any) map[string]any {
+	features, ok := config["features"].(map[string]any)
+	if !ok {
+		features = make(map[string]any)
+		config["features"] = features
+	}
+	return features
+}
+
+func writeConfig(configPath string, config map[string]any) error {
+	mergedData, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+
+	// #nosec G301 -- directory needs to be accessible by docker daemon
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+
+	// #nosec G306 -- daemon.json needs to be readable by docker daemon
+	if err := os.WriteFile(configPath, mergedData, 0644); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+
+	return nil
 }
 
 func reloadDockerDaemon(ctx context.Context) error {
-	return exec.CommandContext(ctx, "pkill", "-HUP", "dockerd").Run()
+	err := exec.CommandContext(ctx, "pkill", "-HUP", "dockerd").Run()
+	if err != nil {
+		// pkill returns exit code 1 if no processes matched
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil // No dockerd process found, nothing to reload
+		}
+		return err
+	}
+	return nil
 }

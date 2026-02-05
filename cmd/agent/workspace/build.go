@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/agent"
 	provider2 "github.com/skevetter/devpod/pkg/provider"
@@ -57,7 +56,12 @@ func (cmd *BuildCmd) Run(ctx context.Context) error {
 	// initialize the workspace
 	cancelCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	_, logger, credentialsDir, err := initWorkspace(cancelCtx, cancel, workspaceInfo, cmd.Debug, false)
+	_, logger, credentialsDir, err := initWorkspace(initWorkspaceParams{
+		ctx:                 cancelCtx,
+		workspaceInfo:       workspaceInfo,
+		debug:               cmd.Debug,
+		shouldInstallDaemon: false,
+	})
 	if err != nil {
 		return err
 	} else if credentialsDir != "" {
@@ -93,15 +97,9 @@ func (cmd *BuildCmd) Run(ctx context.Context) error {
 		}
 
 		if workspaceInfo.CLIOptions.SkipPush {
-			logger.WithFields(logrus.Fields{
-				"imageName": imageName,
-			})
-			logger.Donef("done building image")
+			logger.Donef("done building image %s", imageName)
 		} else {
-			logger.WithFields(logrus.Fields{
-				"imageName": imageName,
-			})
-			logger.Donef("done building and pushing image")
+			logger.Donef("done building and pushing image %s", imageName)
 		}
 	}
 

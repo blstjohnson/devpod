@@ -17,7 +17,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/pkg/agent"
 	"github.com/skevetter/devpod/pkg/agent/tunnelserver"
-	"github.com/skevetter/devpod/pkg/binaries"
 	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/compress"
 	"github.com/skevetter/devpod/pkg/config"
@@ -506,23 +505,10 @@ func (s *workspaceClient) Stop(ctx context.Context, opt client.StopOptions) erro
 }
 
 func (s *workspaceClient) Command(ctx context.Context, commandOptions client.CommandOptions) (err error) {
-	// get environment variables
-	s.m.Lock()
-	environ, err := binaries.ToEnvironmentWithBinaries(binaries.EnvironmentOptions{
-		Context:   s.workspace.Context,
-		Workspace: s.workspace,
-		Machine:   s.machine,
-		Options:   s.devPodConfig.ProviderOptions(s.config.Name),
-		Config:    s.config,
-		ExtraEnv: map[string]string{
-			provider.CommandEnv: commandOptions.Command,
-		},
-		Log: s.log,
-	})
+	environ, err := s.buildEnvironment(commandOptions.Command)
 	if err != nil {
 		return err
 	}
-	s.m.Unlock()
 
 	return RunCommand(RunCommandOptions{
 		Ctx:     ctx,
@@ -647,8 +633,25 @@ type CommandOptions struct {
 	Log       log.Logger
 }
 
+func (s *workspaceClient) buildEnvironment(command string) ([]string, error) {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	return provider.ToEnvironmentWithBinaries(provider.EnvironmentOptions{
+		Context:   s.workspace.Context,
+		Workspace: s.workspace,
+		Machine:   s.machine,
+		Options:   s.devPodConfig.ProviderOptions(s.config.Name),
+		Config:    s.config,
+		ExtraEnv: map[string]string{
+			provider.CommandEnv: command,
+		},
+		Log: s.log,
+	})
+}
+
 func RunCommandWithBinaries(opts CommandOptions) error {
-	environ, err := binaries.ToEnvironmentWithBinaries(binaries.EnvironmentOptions{
+	environ, err := provider.ToEnvironmentWithBinaries(provider.EnvironmentOptions{
 		Context:   opts.Context,
 		Workspace: opts.Workspace,
 		Machine:   opts.Machine,
