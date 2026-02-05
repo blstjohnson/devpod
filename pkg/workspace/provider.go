@@ -601,7 +601,7 @@ func buildGithubURL(path, release string) string {
 func SwitchProvider(
 	ctx context.Context,
 	devPodConfig *config.Config,
-	workspace *providerpkg.Workspace,
+	workspace *provider.Workspace,
 	newProviderName string,
 ) error {
 	client, err := Get(ctx, devPodConfig, []string{workspace.ID}, false, platform.AllOwnerFilter, false, log.Default)
@@ -628,7 +628,7 @@ func SwitchProvider(
 
 	workspace.Provider.Name = newProviderName
 
-	err = providerpkg.SaveWorkspaceConfig(workspace)
+	err = provider.SaveWorkspaceConfig(workspace)
 	if err != nil {
 		return fmt.Errorf("failed to save workspace config: %w", err)
 	}
