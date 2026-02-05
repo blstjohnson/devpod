@@ -626,10 +626,12 @@ func SwitchProvider(
 			workspace.ID, status)
 	}
 
+	oldProviderName := workspace.Provider.Name
 	workspace.Provider.Name = newProviderName
 
 	err = provider.SaveWorkspaceConfig(workspace)
 	if err != nil {
+		workspace.Provider.Name = oldProviderName
 		return fmt.Errorf("failed to save workspace config: %w", err)
 	}
 
