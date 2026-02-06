@@ -6,21 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	"github.com/skevetter/devpod/pkg/inject"
 	"github.com/skevetter/devpod/pkg/shell"
 	"github.com/skevetter/devpod/pkg/version"
 	"github.com/skevetter/log"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 )
 
 var (
@@ -74,8 +71,6 @@ type InjectOptions struct {
 	// SkipVersionCheck disables the validation of the remote agent's version.
 	// Defaults to false, unless DEVPOD_AGENT_URL is set.
 	SkipVersionCheck bool
-	// MetricsCollector handles the recording of injection metrics. Defaults to LogMetricsCollector.
-	MetricsCollector MetricsCollector
 }
 
 func (o *InjectOptions) ApplyDefaults() {
@@ -167,48 +162,35 @@ func InjectAgent(opts *InjectOptions) error {
 		return err
 	}
 
-	if opts.MetricsCollector == nil {
-		opts.MetricsCollector = &LogMetricsCollector{Log: opts.Log}
-	}
-	metrics := &InjectionMetrics{StartTime: time.Now(), BinarySource: "existing"}
-	defer func() {
-		metrics.EndTime = time.Now()
-		opts.MetricsCollector.RecordInjection(metrics)
-	}()
-
 	if opts.IsLocal {
 		return injectLocally(opts)
 	}
 
-	opts.Log.WithFields(logrus.Fields{
-		"localVersion":   opts.LocalVersion,
-		"remoteVersion":  opts.RemoteVersion,
-		"skipCheck":      opts.SkipVersionCheck,
-		"preferDownload": strconv.FormatBool(*opts.PreferDownloadFromRemoteUrl),
-		"timeout":        opts.Timeout,
-	}).Debug("starting agent injection")
-
 	vc := newVersionChecker(opts)
 	bm := NewBinaryManager(opts.Log, opts.DownloadURL)
-	return RetryWithDeadline(
-		opts.Ctx,
-		opts.Log,
-		RetryConfig{
-			MaxAttempts:  30,
-			InitialDelay: 10 * time.Second,
-			MaxDelay:     60 * time.Second,
-			Deadline:     time.Now().Add(opts.Timeout),
-		},
-		func(attempt int) error {
-			return injectAgent(&injectContext{
-				attempt: attempt,
-				opts:    opts,
-				bm:      bm,
-				vc:      vc,
-				metrics: metrics,
-			})
-		},
-	)
+
+	backoff := wait.Backoff{
+		Steps:    30,
+		Duration: 10 * time.Second,
+		Factor:   1.5,
+		Jitter:   0.1,
+		Cap:      60 * time.Second,
+	}
+
+	opts.Log.Debug("starting agent injection")
+	return retry.OnError(backoff, func(err error) bool {
+		if opts.Ctx.Err() != nil {
+			return false
+		}
+		opts.Log.Debugf("retrying injection: %v", err)
+		return true
+	}, func() error {
+		return injectAgent(&injectContext{
+			opts: opts,
+			bm:   bm,
+			vc:   vc,
+		})
+	})
 }
 
 func injectLocally(opts *InjectOptions) error {
@@ -220,17 +202,13 @@ func injectLocally(opts *InjectOptions) error {
 }
 
 type injectContext struct {
-	attempt int
-	opts    *InjectOptions
-	bm      *BinaryManager
-	vc      *versionChecker
-	metrics *InjectionMetrics
+	opts *InjectOptions
+	bm   *BinaryManager
+	vc   *versionChecker
 }
 
 func injectAgent(ctx *injectContext) error {
 	opts := ctx.opts
-	metrics := ctx.metrics
-	metrics.Attempts = ctx.attempt
 
 	buf := &bytes.Buffer{}
 	stderr := setupStderr(opts, buf)
@@ -250,7 +228,7 @@ func injectAgent(ctx *injectContext) error {
 	})
 
 	if err != nil {
-		return handleInjectError(err, wasExecuted, buf, metrics)
+		return handleInjectError(err, wasExecuted, buf)
 	}
 
 	return performVersionCheck(ctx)
@@ -269,12 +247,7 @@ func createBinaryLoader(ctx *injectContext) func(bool) (io.ReadCloser, error) {
 		if arm {
 			arch = "arm64"
 		}
-		stream, source, err := ctx.bm.AcquireBinary(ctx.opts.Ctx, arch)
-		if err != nil {
-			return nil, err
-		}
-		ctx.metrics.BinarySource = source
-		return stream, nil
+		return ctx.bm.AcquireBinary(ctx.opts.Ctx, arch)
 	}
 }
 
@@ -290,40 +263,44 @@ func buildScriptParams(ctx *injectContext) *inject.Params {
 	}
 }
 
-func handleInjectError(err error, wasExecuted bool, buf *bytes.Buffer, metrics *InjectionMetrics) error {
-	metrics.Error = err
+func handleInjectError(err error, wasExecuted bool, buf *bytes.Buffer) error {
 	if wasExecuted {
 		return &InjectError{
-			Stage: "command_exec",
+			Stage: InjectStageCommandExecution,
 			Cause: fmt.Errorf("%w: %s", err, buf.String()),
 		}
 	}
-	return &InjectError{Stage: "inject", Cause: err}
+	return &InjectError{Stage: InjectStageInject, Cause: err}
 }
 
 func performVersionCheck(ctx *injectContext) error {
 	opts := ctx.opts
-	metrics := ctx.metrics
 
 	detectedVersion, err := ctx.vc.detectRemoteAgentVersion(opts.Ctx, opts.Exec, opts.RemoteAgentPath, opts.Log)
-	if detectedVersion != "" {
-		metrics.AgentVersion = detectedVersion
-	}
 
 	if !opts.SkipVersionCheck {
 		if err != nil {
-			metrics.VersionCheck = false
-			return &InjectError{Stage: "version_check", Cause: err}
+			return &InjectError{Stage: InjectStageVersionCheck, Cause: err}
 		}
-		metrics.VersionCheck = true
 	}
 
-	metrics.Success = true
+	if detectedVersion != "" && !opts.SkipVersionCheck {
+		opts.Log.Debugf("detected remote agent version: %s", detectedVersion)
+	}
+
 	return nil
 }
 
+type InjectStage string
+
+const (
+	InjectStageInject           InjectStage = "inject"
+	InjectStageCommandExecution InjectStage = "command execution"
+	InjectStageVersionCheck     InjectStage = "version check"
+)
+
 type InjectError struct {
-	Stage string
+	Stage InjectStage
 	Cause error
 }
 
@@ -336,165 +313,6 @@ func (e *InjectError) Error() string {
 
 func (e *InjectError) Unwrap() error {
 	return e.Cause
-}
-
-type InjectionMetrics struct {
-	StartTime    time.Time
-	EndTime      time.Time
-	Attempts     int
-	BinarySource string
-	AgentVersion string
-	VersionCheck bool
-	Success      bool
-	Error        error
-}
-
-type MetricsCollector interface {
-	RecordInjection(metrics *InjectionMetrics)
-}
-
-type LogMetricsCollector struct {
-	Log log.Logger
-}
-
-func (c *LogMetricsCollector) RecordInjection(metrics *InjectionMetrics) {
-	c.Log.WithFields(logrus.Fields{
-		"duration":           metrics.EndTime.Sub(metrics.StartTime),
-		"attempts":           metrics.Attempts,
-		"binarySource":       metrics.BinarySource,
-		"remoteAgentVersion": metrics.AgentVersion,
-		"versionCheck":       metrics.VersionCheck,
-		"success":            metrics.Success,
-	}).Debug("agent injection metrics")
-}
-
-type RetryConfig struct {
-	MaxAttempts  int
-	InitialDelay time.Duration
-	MaxDelay     time.Duration
-	Deadline     time.Time
-}
-
-type RetryFunc func(attempt int) error
-
-func RetryWithDeadline(
-	ctx context.Context,
-	log log.Logger,
-	cfg RetryConfig,
-	fn RetryFunc,
-) error {
-	cfg.applyDefaults()
-	delay := cfg.InitialDelay
-
-	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
-		if err := cfg.checkPreConditions(ctx, attempt-1); err != nil {
-			return err
-		}
-
-		err := fn(attempt)
-		if err == nil {
-			return nil
-		}
-
-		if attempt == cfg.MaxAttempts {
-			return fmt.Errorf("agent injection failed after %d attempts: %w", attempt, err)
-		}
-
-		delay = cfg.handleRetry(&retryContext{
-			ctx:     ctx,
-			log:     log,
-			attempt: attempt,
-			err:     err,
-			delay:   delay,
-		})
-		if delay == 0 {
-			return ctx.Err()
-		}
-	}
-
-	return fmt.Errorf("retry loop exited unexpectedly")
-}
-
-func (cfg *RetryConfig) checkPreConditions(ctx context.Context, attemptsCompleted int) error {
-	if err := cfg.checkDeadline(attemptsCompleted); err != nil {
-		return err
-	}
-	return checkContextCancelled(ctx)
-}
-
-type retryContext struct {
-	ctx     context.Context
-	log     log.Logger
-	attempt int
-	err     error
-	delay   time.Duration
-}
-
-func (cfg *RetryConfig) handleRetry(rctx *retryContext) time.Duration {
-	sleep := calculateSleep(rctx.delay, cfg)
-
-	rctx.log.WithFields(logrus.Fields{
-		"attempt": rctx.attempt,
-		"delay":   sleep,
-		"error":   rctx.err,
-	}).Debug("retrying")
-
-	if err := sleepWithContext(rctx.ctx, sleep); err != nil {
-		return 0
-	}
-
-	newDelay := rctx.delay * 2
-	return min(newDelay, cfg.MaxDelay)
-}
-
-// applyDefaults sets default values for retry configuration.
-func (cfg *RetryConfig) applyDefaults() {
-	if cfg.MaxAttempts <= 0 {
-		cfg.MaxAttempts = 1
-	}
-	if cfg.InitialDelay <= 0 {
-		cfg.InitialDelay = time.Second
-	}
-}
-
-// checkDeadline returns an error if the deadline has been exceeded.
-func (cfg *RetryConfig) checkDeadline(attemptsCompleted int) error {
-	if cfg.Deadline.IsZero() || !time.Now().After(cfg.Deadline) {
-		return nil
-	}
-	return fmt.Errorf("%w after %d attempts", ErrInjectTimeout, attemptsCompleted)
-}
-
-// checkContextCancelled returns an error if the context has been cancelled.
-func checkContextCancelled(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
-}
-
-// calculateSleep determines the sleep duration respecting deadline and max delay.
-func calculateSleep(delay time.Duration, cfg *RetryConfig) time.Duration {
-	sleep := delay
-	if !cfg.Deadline.IsZero() {
-		remaining := time.Until(cfg.Deadline)
-		if remaining > 0 && sleep > remaining {
-			sleep = remaining
-		}
-	}
-	return sleep
-}
-
-// sleepWithContext sleeps for the specified duration with context cancellation support.
-func sleepWithContext(ctx context.Context, duration time.Duration) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(duration):
-		return nil
-	}
 }
 
 type versionChecker struct {
@@ -548,247 +366,8 @@ func (vc *versionChecker) detectRemoteAgentVersion(
 			"If your workspace fails to deploy, you may need to manually remove " +
 			"the existing agent and redeploy.")
 	} else {
-		log.WithFields(logrus.Fields{
-			"expected":  vc.remoteVersion,
-			"actual":    actualVersion,
-			"agentPath": agentPath,
-		}).Debug("remote agent version validated")
+		log.Debug("remote agent version matches expected version")
 	}
 
 	return actualVersion, nil
-}
-
-type BinarySource interface {
-	GetBinary(ctx context.Context, arch string) (io.ReadCloser, error)
-	SourceName() string
-}
-
-type BinaryManager struct {
-	sources []BinarySource
-	logger  log.Logger
-}
-
-func NewBinaryManager(logger log.Logger, downloadURL string) *BinaryManager {
-	cachePath := filepath.Join(os.TempDir(), "devpod-cache")
-	cache := &BinaryCache{BaseDir: cachePath}
-
-	return &BinaryManager{
-		sources: []BinarySource{
-			&InjectSource{},
-			&FileCacheSource{Cache: cache},
-			&HTTPDownloadSource{BaseURL: downloadURL, Cache: cache},
-		},
-		logger: logger,
-	}
-}
-
-func (m *BinaryManager) AcquireBinary(ctx context.Context, arch string) (io.ReadCloser, string, error) {
-	for _, source := range m.sources {
-		binary, err := source.GetBinary(ctx, arch)
-		if err == nil {
-			m.logger.Debugf("acquired binary from %s", source.SourceName())
-			return binary, source.SourceName(), nil
-		}
-		m.logger.Debugf("source %s failed: %v", source.SourceName(), err)
-	}
-	return nil, "", ErrBinaryNotFound
-}
-
-type BinaryCache struct {
-	BaseDir string
-}
-
-func (c *BinaryCache) Get(arch string) (io.ReadCloser, error) {
-	return os.Open(c.pathFor(arch))
-}
-
-func (c *BinaryCache) Set(arch string, data io.Reader) error {
-	return c.atomicWrite(c.pathFor(arch), data)
-}
-
-func (c *BinaryCache) pathFor(arch string) string {
-	return filepath.Join(c.BaseDir, "devpod-"+osLinux+"-"+arch)
-}
-
-func (c *BinaryCache) atomicWrite(path string, data io.Reader) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil { // #nosec G301
-		return err
-	}
-
-	file, err := os.CreateTemp(filepath.Dir(path), "devpod-*.tmp")
-	if err != nil {
-		return err
-	}
-	temp := file.Name()
-
-	if _, err := io.Copy(file, data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(temp)
-		return err
-	}
-
-	if err := file.Chmod(0755); err != nil {
-		_ = file.Close()
-		_ = os.Remove(temp)
-		return err
-	}
-
-	if err := file.Close(); err != nil {
-		_ = os.Remove(temp)
-		return err
-	}
-	return os.Rename(temp, path)
-}
-
-type InjectSource struct{}
-
-func (s *InjectSource) GetBinary(ctx context.Context, arch string) (io.ReadCloser, error) {
-	if !s.matchesCurrentRuntime(arch) {
-		return nil, ErrArchMismatch
-	}
-	return s.openCurrentExecutable()
-}
-
-func (s *InjectSource) SourceName() string {
-	return "local_executable"
-}
-
-func (s *InjectSource) matchesCurrentRuntime(arch string) bool {
-	return runtime.GOOS == osLinux && runtime.GOARCH == arch
-}
-
-func (s *InjectSource) openCurrentExecutable() (io.ReadCloser, error) {
-	path, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	return os.Open(path) // #nosec G304
-}
-
-type FileCacheSource struct {
-	Cache *BinaryCache
-}
-
-func (s *FileCacheSource) GetBinary(ctx context.Context, arch string) (io.ReadCloser, error) {
-	return s.Cache.Get(arch)
-}
-
-func (s *FileCacheSource) SourceName() string {
-	return "local_cache"
-}
-
-type HTTPDownloadSource struct {
-	BaseURL string
-	Cache   *BinaryCache
-}
-
-func (s *HTTPDownloadSource) GetBinary(ctx context.Context, arch string) (io.ReadCloser, error) {
-	downloadURL, err := s.buildDownloadURL(arch)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.downloadFile(ctx, downloadURL)
-	if err != nil {
-		return nil, err
-	}
-
-	if s.Cache != nil {
-		return s.cacheAndReturn(arch, resp.Body)
-	}
-
-	return resp.Body, nil
-}
-
-func (s *HTTPDownloadSource) SourceName() string {
-	return "http_download"
-}
-
-func (s *HTTPDownloadSource) buildDownloadURL(arch string) (string, error) {
-	binaryName := "devpod-" + osLinux + "-" + arch
-	downloadURL, err := url.JoinPath(s.BaseURL, binaryName)
-	if err != nil {
-		return "", fmt.Errorf("failed to construct download URL: %w", err)
-	}
-	return downloadURL, nil
-}
-
-func (s *HTTPDownloadSource) downloadFile(ctx context.Context, downloadURL string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := devpodhttp.GetHTTPClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download binary: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("bad status: %s", resp.Status)
-	}
-
-	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "text/html") {
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("received HTML instead of binary from %s (check if the download URL is correct)", downloadURL)
-	}
-
-	return resp, nil
-}
-
-func (s *HTTPDownloadSource) cacheAndReturn(arch string, body io.ReadCloser) (io.ReadCloser, error) {
-	pr, pw := io.Pipe()
-
-	go func() {
-		defer func() {
-			_ = body.Close()
-		}()
-
-		streamOnly := func() {
-			if _, err := io.Copy(pw, body); err != nil {
-				_ = pw.CloseWithError(err)
-			} else {
-				_ = pw.Close()
-			}
-		}
-
-		cachePath := s.Cache.pathFor(arch)
-		if err := os.MkdirAll(filepath.Dir(cachePath), 0750); err != nil { // #nosec G301
-			streamOnly()
-			return
-		}
-
-		file, err := os.CreateTemp(filepath.Dir(cachePath), "devpod-agent-*.tmp")
-		if err != nil {
-			streamOnly()
-			return
-		}
-		tmpPath := file.Name()
-
-		success := false
-		defer func() {
-			if !success {
-				_ = os.Remove(tmpPath)
-			}
-		}()
-
-		mw := io.MultiWriter(file, pw)
-		if _, err := io.Copy(mw, body); err != nil {
-			_ = file.Close()
-			_ = pw.CloseWithError(err)
-			return
-		}
-
-		_ = pw.Close()
-		_ = file.Sync()
-		_ = file.Close()
-
-		if err := os.Rename(tmpPath, cachePath); err == nil {
-			success = true
-		}
-	}()
-
-	return pr, nil
 }
