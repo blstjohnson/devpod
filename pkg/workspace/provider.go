@@ -614,11 +614,11 @@ func SwitchProvider(
 		return fmt.Errorf("failed to lock workspace %s: %w", workspace.ID, err)
 	}
 
+	defer client.Unlock()
 	status, err := client.Status(ctx, client2.StatusOptions{ContainerStatus: true})
 	if err != nil {
 		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
 	}
-	defer client.Unlock()
 
 	if status != client2.StatusStopped && status != client2.StatusNotFound {
 		return fmt.Errorf(`workspace %s is in state %s and cannot be switched.
