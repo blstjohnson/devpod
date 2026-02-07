@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -380,9 +381,54 @@ spec:
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
 
+				// Debug: Show environment variables before devpod up.
+				fmt.Printf("DEBUG: Environment variables before devpod up:\n")
+				for _, env := range []string{"DOCKER_HOST", "DEVPOD_OS", "DEVPOD_ARCH"} {
+					val := os.Getenv(env)
+					fmt.Printf("DEBUG: %s=%s\n", env, val)
+				}
+
+				// Debug: List workspaces before devpod up.
+				fmt.Printf("DEBUG: Listing workspaces before devpod up:\n")
+				workspaceListBefore, err := f.DevPodListParsed(ctx)
+				if err != nil {
+					fmt.Printf("DEBUG: Error listing workspaces before up: %v\n", err)
+				} else {
+					for _, ws := range workspaceListBefore {
+						fmt.Printf("DEBUG: Before up - Workspace ID: %s, Provider: %s, Context: %s\n", ws.ID, ws.Provider.Name, ws.Context)
+					}
+				}
+
 				// Create and start workspace (workspace remains running).
 				err = f.DevPodUp(ctx, tempDir)
 				framework.ExpectNoError(err)
+
+				// Debug: Show environment variables after devpod up.
+				fmt.Printf("DEBUG: Environment variables after devpod up:\n")
+				for _, env := range []string{"DOCKER_HOST", "DEVPOD_OS", "DEVPOD_ARCH"} {
+					val := os.Getenv(env)
+					fmt.Printf("DEBUG: %s=%s\n", env, val)
+				}
+
+				// Debug: List workspaces after devpod up.
+				fmt.Printf("DEBUG: Listing workspaces after devpod up:\n")
+				workspaceListAfter, err := f.DevPodListParsed(ctx)
+				if err != nil {
+					fmt.Printf("DEBUG: Error listing workspaces after up: %v\n", err)
+				} else {
+					for _, ws := range workspaceListAfter {
+						fmt.Printf("DEBUG: After up - Workspace ID: %s, Provider: %s, Context: %s\n", ws.ID, ws.Provider.Name, ws.Context)
+					}
+				}
+
+				// Debug: Check workspace status with container status.
+				fmt.Printf("DEBUG: Checking workspace status with container status:\n")
+				status, err := f.DevPodStatus(ctx, tempDir, "--container-status=true")
+				if err != nil {
+					fmt.Printf("DEBUG: Error getting workspace status: %v\n", err)
+				} else {
+					fmt.Printf("DEBUG: Workspace status - ID: %s, State: %s\n", status.ID, status.State)
+				}
 
 				// Attempt to rename provider - this should fail because workspace is running.
 				err = f.DevPodProviderRename(ctx, providerName, renamedProviderName)
