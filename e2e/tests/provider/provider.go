@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -299,7 +300,13 @@ spec:
 				ginkgo.DeferCleanup(framework.CleanupTempDir, initialDir, tempDir)
 
 				// Add and use provider.
-				err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
+				// Check if we're in a Windows CI/CD environment with Podman
+				dockerHost := os.Getenv("DOCKER_HOST")
+				if dockerHost != "" && strings.Contains(dockerHost, "podman") {
+					err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName, "--option=DOCKER_PATH=podman")
+				} else {
+					err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
+				}
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
@@ -376,7 +383,13 @@ spec:
 				framework.ExpectNoError(err)
 
 				// Add and use provider.
-				err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
+				// Check if we're in a Windows CI/CD environment with Podman.
+				dockerHost := os.Getenv("DOCKER_HOST")
+				if dockerHost != "" && strings.Contains(dockerHost, "podman") {
+					err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName, "--option=DOCKER_PATH=podman")
+				} else {
+					err = f.DevPodProviderAdd(ctx, "docker", "--name", providerName)
+				}
 				framework.ExpectNoError(err)
 				err = f.DevPodProviderUse(ctx, providerName)
 				framework.ExpectNoError(err)
